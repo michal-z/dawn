@@ -5176,6 +5176,7 @@ template <> struct LvlSTypeMap<VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_C
     typedef VkPhysicalDeviceCustomBorderColorFeaturesEXT Type;
 };
 
+/*
 // Map type VkPhysicalDevicePresentBarrierFeaturesNV to id VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_BARRIER_FEATURES_NV
 template <> struct LvlTypeMap<VkPhysicalDevicePresentBarrierFeaturesNV> {
     static const VkStructureType kSType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_BARRIER_FEATURES_NV;
@@ -6718,6 +6719,7 @@ template <> struct LvlTypeMap<VkPhysicalDeviceMeshShaderPropertiesEXT> {
 template <> struct LvlSTypeMap<VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT> {
     typedef VkPhysicalDeviceMeshShaderPropertiesEXT Type;
 };
+*/
 
 // Header "base class" for pNext chain traversal
 struct LvlGenericHeader {
