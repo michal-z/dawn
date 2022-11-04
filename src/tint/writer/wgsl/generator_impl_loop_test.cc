@@ -26,7 +26,8 @@ TEST_F(WgslGeneratorImplTest, Emit_Loop) {
     auto* continuing = Block();
     auto* l = Loop(body, continuing);
 
-    WrapInFunction(l);
+    Func("F", utils::Empty, ty.void_(), utils::Vector{l},
+         utils::Vector{Stage(ast::PipelineStage::kFragment)});
 
     GeneratorImpl& gen = Build();
 
@@ -46,7 +47,8 @@ TEST_F(WgslGeneratorImplTest, Emit_LoopWithContinuing) {
     auto* continuing = Block(CallStmt(Call("a_statement")));
     auto* l = Loop(body, continuing);
 
-    WrapInFunction(l);
+    Func("F", utils::Empty, ty.void_(), utils::Vector{l},
+         utils::Vector{Stage(ast::PipelineStage::kFragment)});
 
     GeneratorImpl& gen = Build();
 
@@ -63,12 +65,38 @@ TEST_F(WgslGeneratorImplTest, Emit_LoopWithContinuing) {
 )");
 }
 
+TEST_F(WgslGeneratorImplTest, Emit_LoopWithContinuing_BreakIf) {
+    Func("a_statement", {}, ty.void_(), {});
+
+    auto* body = Block(create<ast::DiscardStatement>());
+    auto* continuing = Block(CallStmt(Call("a_statement")), BreakIf(true));
+    auto* l = Loop(body, continuing);
+
+    Func("F", utils::Empty, ty.void_(), utils::Vector{l},
+         utils::Vector{Stage(ast::PipelineStage::kFragment)});
+
+    GeneratorImpl& gen = Build();
+
+    gen.increment_indent();
+
+    ASSERT_TRUE(gen.EmitStatement(l)) << gen.error();
+    EXPECT_EQ(gen.result(), R"(  loop {
+    discard;
+
+    continuing {
+      a_statement();
+      break if true;
+    }
+  }
+)");
+}
+
 TEST_F(WgslGeneratorImplTest, Emit_ForLoopWithMultiStmtInit) {
     // var<workgroup> a : atomic<i32>;
     // for({ignore(1i); ignore(2i);}; ; ) {
     //   return;
     // }
-    GlobalVar("a", ty.atomic<i32>(), ast::StorageClass::kWorkgroup);
+    GlobalVar("a", ty.atomic<i32>(), ast::AddressSpace::kWorkgroup);
     auto* multi_stmt = Block(Ignore(1_i), Ignore(2_i));
     auto* f = For(multi_stmt, nullptr, nullptr, Block(Return()));
     WrapInFunction(f);
@@ -132,7 +160,7 @@ TEST_F(WgslGeneratorImplTest, Emit_ForLoopWithMultiStmtCont) {
     //   return;
     // }
 
-    GlobalVar("a", ty.atomic<i32>(), ast::StorageClass::kWorkgroup);
+    GlobalVar("a", ty.atomic<i32>(), ast::AddressSpace::kWorkgroup);
     auto* multi_stmt = Block(Ignore(1_i), Ignore(2_i));
     auto* f = For(nullptr, nullptr, multi_stmt, Block(Return()));
     WrapInFunction(f);
@@ -175,7 +203,7 @@ TEST_F(WgslGeneratorImplTest, Emit_ForLoopWithMultiStmtInitCondCont) {
     // for({ ignore(1i); ignore(2i); }; true; { ignore(3i); ignore(4i); }) {
     //   return;
     // }
-    GlobalVar("a", ty.atomic<i32>(), ast::StorageClass::kWorkgroup);
+    GlobalVar("a", ty.atomic<i32>(), ast::AddressSpace::kWorkgroup);
     auto* multi_stmt_a = Block(Ignore(1_i), Ignore(2_i));
     auto* multi_stmt_b = Block(Ignore(3_i), Ignore(4_i));
     auto* f = For(multi_stmt_a, Expr(true), multi_stmt_b, Block(Return()));

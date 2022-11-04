@@ -189,7 +189,7 @@ class MultisampledRenderingTest : public DawnTest {
         constexpr uint32_t kMiddleX = (kWidth - 1) / 2;
         constexpr uint32_t kMiddleY = (kHeight - 1) / 2;
 
-        RGBA8 expectedColor = ExpectedMSAAColor(inputColor, msaaCoverage);
+        utils::RGBA8 expectedColor = ExpectedMSAAColor(inputColor, msaaCoverage);
         EXPECT_TEXTURE_EQ(&expectedColor, resolveTexture, {kMiddleX, kMiddleY, arrayLayer}, {1, 1},
                           mipmapLevel);
     }
@@ -274,8 +274,8 @@ class MultisampledRenderingTest : public DawnTest {
         return pipeline;
     }
 
-    RGBA8 ExpectedMSAAColor(const wgpu::Color color, const double msaaCoverage) {
-        RGBA8 result;
+    utils::RGBA8 ExpectedMSAAColor(const wgpu::Color color, const double msaaCoverage) {
+        utils::RGBA8 result;
         result.r = static_cast<uint8_t>(std::min(255.0, 256 * color.r * msaaCoverage));
         result.g = static_cast<uint8_t>(std::min(255.0, 256 * color.g * msaaCoverage));
         result.b = static_cast<uint8_t>(std::min(255.0, 256 * color.b * msaaCoverage));
@@ -359,6 +359,9 @@ TEST_P(MultisampledRenderingTest, MultisampledRenderingWithDepthTest) {
 // Test rendering into a multisampled color attachment and doing MSAA resolve in another render pass
 // works correctly.
 TEST_P(MultisampledRenderingTest, ResolveInAnotherRenderPass) {
+    // TODO(dawn:1549) Fails on Qualcomm-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsQualcomm());
+
     constexpr bool kTestDepth = false;
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     wgpu::RenderPipeline pipeline = CreateRenderPipelineWithOneOutputForTest(kTestDepth);
@@ -394,6 +397,9 @@ TEST_P(MultisampledRenderingTest, ResolveInAnotherRenderPass) {
 TEST_P(MultisampledRenderingTest, ResolveIntoMultipleResolveTargets) {
     // TODO(dawn:462): Issue in the D3D12 validation layers.
     DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsNvidia() && IsBackendValidationEnabled());
+
+    // TODO(dawn:1550) Fails on ARM-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsARM());
 
     wgpu::TextureView multisampledColorView2 =
         CreateTextureForRenderAttachment(kColorFormat, kSampleCount).CreateView();
@@ -433,6 +439,9 @@ TEST_P(MultisampledRenderingTest, ResolveIntoMultipleResolveTargets) {
 
 // Test doing MSAA resolve on one multisampled texture twice works correctly.
 TEST_P(MultisampledRenderingTest, ResolveOneMultisampledTextureTwice) {
+    // TODO(dawn:1549) Fails on Qualcomm-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsQualcomm());
+
     constexpr bool kTestDepth = false;
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     wgpu::RenderPipeline pipeline = CreateRenderPipelineWithOneOutputForTest(kTestDepth);
@@ -510,6 +519,10 @@ TEST_P(MultisampledRenderingTest, ResolveIntoOneMipmapLevelOf2DTexture) {
 TEST_P(MultisampledRenderingTest, ResolveInto2DArrayTexture) {
     // TODO(dawn:462): Issue in the D3D12 validation layers.
     DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsBackendValidationEnabled());
+
+    // TODO(dawn:1549) Fails on Qualcomm-based Android devices.
+    // TODO(dawn:1550) Fails on ARM-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid());
 
     wgpu::TextureView multisampledColorView2 =
         CreateTextureForRenderAttachment(kColorFormat, kSampleCount).CreateView();
@@ -630,7 +643,10 @@ TEST_P(MultisampledRenderingTest, ResolveInto2DTextureWithEmptyFinalSampleMask) 
 // mask.
 TEST_P(MultisampledRenderingTest, ResolveIntoMultipleResolveTargetsWithSampleMask) {
     // TODO(crbug.com/dawn/1462): Re-enable on Mac Intel 12.4.
-    DAWN_SUPPRESS_TEST_IF(IsMetal() && IsIntel() && IsMacOS(12, 4));
+    DAWN_SUPPRESS_TEST_IF(IsMetal() && IsIntel() && (IsMacOS(12, 4) || IsMacOS(12, 5)));
+
+    // TODO(dawn:1550) Fails on ARM-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsARM());
 
     wgpu::TextureView multisampledColorView2 =
         CreateTextureForRenderAttachment(kColorFormat, kSampleCount).CreateView();
@@ -671,6 +687,9 @@ TEST_P(MultisampledRenderingTest, ResolveIntoMultipleResolveTargetsWithSampleMas
 
 // Test multisampled rendering with depth test works correctly with a non-default sample mask.
 TEST_P(MultisampledRenderingTest, MultisampledRenderingWithDepthTestAndSampleMask) {
+    // TODO(dawn:1549) Fails on Qualcomm-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsQualcomm());
+
     constexpr bool kTestDepth = true;
     // The second sample is included in the first render pass and it's covered by the triangle.
     constexpr uint32_t kSampleMaskGreen = kSecondSampleMaskBit;
@@ -778,19 +797,22 @@ TEST_P(MultisampledRenderingTest, ResolveInto2DTextureWithSampleMaskAndShaderOut
     wgpu::CommandBuffer commandBuffer = commandEncoder.Finish();
     queue.Submit(1, &commandBuffer);
 
-    RGBA8 expectedColor = ExpectedMSAAColor(kGreen, kMSAACoverage);
+    utils::RGBA8 expectedColor = ExpectedMSAAColor(kGreen, kMSAACoverage);
     EXPECT_TEXTURE_EQ(&expectedColor, mResolveTexture, {1, 0}, {1, 1});
 }
 
 // Test doing MSAA resolve into multiple resolve targets works correctly with a non-default
 // shader-output mask.
 TEST_P(MultisampledRenderingTest, ResolveIntoMultipleResolveTargetsWithShaderOutputMask) {
+    // TODO(dawn:1550) Fails on ARM-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsARM());
+
     // TODO(crbug.com/dawn/673): Work around or enforce via validation that sample variables are not
     // supported on some platforms.
     DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("disable_sample_variables"));
 
     // TODO(crbug.com/dawn/1462): Re-enable on Mac Intel 12.4.
-    DAWN_SUPPRESS_TEST_IF(IsMetal() && IsIntel() && IsMacOS(12, 4));
+    DAWN_SUPPRESS_TEST_IF(IsMetal() && IsIntel() && (IsMacOS(12, 4) || IsMacOS(12, 5)));
 
     wgpu::TextureView multisampledColorView2 =
         CreateTextureForRenderAttachment(kColorFormat, kSampleCount).CreateView();
@@ -887,7 +909,7 @@ TEST_P(MultisampledRenderingTest, ResolveInto2DTextureWithAlphaToCoverage) {
             msaaCoverage = 1.0f;
         }
 
-        RGBA8 expectedColor = ExpectedMSAAColor(kGreen, msaaCoverage);
+        utils::RGBA8 expectedColor = ExpectedMSAAColor(kGreen, msaaCoverage);
         EXPECT_TEXTURE_EQ(&expectedColor, mResolveTexture, {1, 0}, {1, 1});
     }
 }
@@ -896,6 +918,9 @@ TEST_P(MultisampledRenderingTest, ResolveInto2DTextureWithAlphaToCoverage) {
 // alphaToCoverage. The alphaToCoverage mask is computed based on the alpha
 // component of the first color render attachment.
 TEST_P(MultisampledRenderingTest, ResolveIntoMultipleResolveTargetsWithAlphaToCoverage) {
+    // TODO(dawn:1550) Fails on ARM-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsARM());
+
     wgpu::TextureView multisampledColorView2 =
         CreateTextureForRenderAttachment(kColorFormat, kSampleCount).CreateView();
     wgpu::Texture resolveTexture2 = CreateTextureForRenderAttachment(kColorFormat, 1);
@@ -939,8 +964,8 @@ TEST_P(MultisampledRenderingTest, ResolveIntoMultipleResolveTargetsWithAlphaToCo
 
         // Alpha to coverage affects both the color outputs, but the mask is computed
         // using only the first one.
-        RGBA8 expectedRed = ExpectedMSAAColor(kRed, kMSAACoverage);
-        RGBA8 expectedGreen = ExpectedMSAAColor(kGreen, kMSAACoverage);
+        utils::RGBA8 expectedRed = ExpectedMSAAColor(kRed, kMSAACoverage);
+        utils::RGBA8 expectedGreen = ExpectedMSAAColor(kGreen, kMSAACoverage);
         EXPECT_TEXTURE_EQ(&expectedRed, mResolveTexture, {1, 0}, {1, 1});
         EXPECT_TEXTURE_EQ(&expectedGreen, resolveTexture2, {1, 0}, {1, 1});
     }
@@ -951,6 +976,10 @@ TEST_P(MultisampledRenderingTest, MultisampledRenderingWithDepthTestAndAlphaToCo
     // This test fails because Swiftshader is off-by-one with its ((a+b)/2 + (c+d)/2)/2 fast resolve
     // algorithm.
     DAWN_SUPPRESS_TEST_IF(IsSwiftshader() || IsANGLE());
+
+    // TODO(dawn:1549) Fails on Qualcomm-based Android devices.
+    // TODO(dawn:1550) Fails on ARM-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid());
 
     constexpr bool kTestDepth = true;
     constexpr uint32_t kSampleMask = 0xFFFFFFFF;
@@ -1001,7 +1030,7 @@ TEST_P(MultisampledRenderingTest, MultisampledRenderingWithDepthTestAndAlphaToCo
     constexpr wgpu::Color kHalfGreenHalfRed = {(kGreen.r + kRed.r) / 2.0, (kGreen.g + kRed.g) / 2.0,
                                                (kGreen.b + kRed.b) / 2.0,
                                                (kGreen.a + kRed.a) / 2.0};
-    RGBA8 expectedColor = ExpectedMSAAColor(kHalfGreenHalfRed, 1.0f);
+    utils::RGBA8 expectedColor = ExpectedMSAAColor(kHalfGreenHalfRed, 1.0f);
 
     EXPECT_TEXTURE_EQ(&expectedColor, mResolveTexture, {1, 0}, {1, 1});
 }
@@ -1012,6 +1041,9 @@ TEST_P(MultisampledRenderingTest, ResolveInto2DTextureWithAlphaToCoverageAndSamp
     // This test fails because Swiftshader is off-by-one with its ((a+b)/2 + (c+d)/2)/2 fast resolve
     // algorithm.
     DAWN_SUPPRESS_TEST_IF(IsSwiftshader() || IsANGLE());
+
+    // TODO(dawn:1550) Fails on ARM-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsARM());
 
     // TODO(dawn:491): This doesn't work on Metal, because we're using both the shader-output
     // mask (emulting the sampleMask from RenderPipeline) and alpha-to-coverage at the same
@@ -1046,7 +1078,7 @@ TEST_P(MultisampledRenderingTest, ResolveInto2DTextureWithAlphaToCoverageAndSamp
         wgpu::CommandBuffer commandBuffer = commandEncoder.Finish();
         queue.Submit(1, &commandBuffer);
 
-        RGBA8 expectedColor = ExpectedMSAAColor(kGreen, kMSAACoverage * alpha);
+        utils::RGBA8 expectedColor = ExpectedMSAAColor(kGreen, kMSAACoverage * alpha);
         EXPECT_TEXTURE_EQ(&expectedColor, mResolveTexture, {1, 0}, {1, 1});
     }
 }
@@ -1057,6 +1089,9 @@ TEST_P(MultisampledRenderingTest, ResolveInto2DTextureWithAlphaToCoverageAndRast
     // This test fails because Swiftshader is off-by-one with its ((a+b)/2 + (c+d)/2)/2 fast resolve
     // algorithm.
     DAWN_SUPPRESS_TEST_IF(IsSwiftshader() || IsANGLE());
+
+    // TODO(dawn:1550) Fails on ARM-based Android devices.
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsARM());
 
     constexpr bool kTestDepth = false;
     constexpr float kMSAACoverage = 0.50f;

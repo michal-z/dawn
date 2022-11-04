@@ -4,6 +4,7 @@
 /.cipd
 /.gclient
 /.gclient_entries
+/.gclient_previous_sync_commits
 /build
 /buildtools
 /testing
@@ -21,6 +22,7 @@
 /third_party/jsoncpp
 /third_party/llvm-build
 /third_party/markupsafe
+/third_party/ninja
 /third_party/node
 /third_party/node-addon-api
 /third_party/node-api-headers
@@ -126,3 +128,4 @@ lcov.info
 ### Clang-Tidy files
 all_findings.json
 
+tint.dot

@@ -25,6 +25,7 @@
 #include "src/tint/ast/atomic.h"
 #include "src/tint/ast/block_statement.h"
 #include "src/tint/ast/bool.h"
+#include "src/tint/ast/break_if_statement.h"
 #include "src/tint/ast/break_statement.h"
 #include "src/tint/ast/call_statement.h"
 #include "src/tint/ast/compound_assignment_statement.h"
@@ -182,6 +183,7 @@ class DependencyScanner {
             [&](const ast::Struct* str) {
                 Declare(str->name, str);
                 for (auto* member : str->members) {
+                    TraverseAttributes(member->attributes);
                     TraverseType(member->type);
                 }
             },
@@ -192,13 +194,15 @@ class DependencyScanner {
             [&](const ast::Function* func) {
                 Declare(func->symbol, func);
                 TraverseAttributes(func->attributes);
+                TraverseAttributes(func->return_type_attributes);
                 TraverseFunction(func);
             },
             [&](const ast::Variable* var) {
                 Declare(var->symbol, var);
                 TraverseType(var->type);
-                if (var->constructor) {
-                    TraverseExpression(var->constructor);
+                TraverseAttributes(var->attributes);
+                if (var->initializer) {
+                    TraverseExpression(var->initializer);
                 }
             },
             [&](const ast::Enable*) {
@@ -261,9 +265,8 @@ class DependencyScanner {
                 TINT_DEFER(scope_stack_.Pop());
                 TraverseStatements(b->statements);
             },
-            [&](const ast::CallStatement* r) {  //
-                TraverseExpression(r->expr);
-            },
+            [&](const ast::BreakIfStatement* b) { TraverseExpression(b->condition); },
+            [&](const ast::CallStatement* r) { TraverseExpression(r->expr); },
             [&](const ast::CompoundAssignmentStatement* a) {
                 TraverseExpression(a->lhs);
                 TraverseExpression(a->rhs);
@@ -290,14 +293,12 @@ class DependencyScanner {
                     TraverseStatement(i->else_statement);
                 }
             },
-            [&](const ast::ReturnStatement* r) {  //
-                TraverseExpression(r->value);
-            },
+            [&](const ast::ReturnStatement* r) { TraverseExpression(r->value); },
             [&](const ast::SwitchStatement* s) {
                 TraverseExpression(s->condition);
                 for (auto* c : s->body) {
                     for (auto* sel : c->selectors) {
-                        TraverseExpression(sel);
+                        TraverseExpression(sel->expr);
                     }
                     TraverseStatement(c->body);
                 }
@@ -307,7 +308,7 @@ class DependencyScanner {
                     graph_.shadows.emplace(v->variable, shadows);
                 }
                 TraverseType(v->variable->type);
-                TraverseExpression(v->variable->constructor);
+                TraverseExpression(v->variable->initializer);
                 Declare(v->variable->symbol, v->variable);
             },
             [&](const ast::WhileStatement* w) {
@@ -415,17 +416,45 @@ class DependencyScanner {
     /// Traverses the attribute, performing symbol resolution and determining
     /// global dependencies.
     void TraverseAttribute(const ast::Attribute* attr) {
-        if (auto* wg = attr->As<ast::WorkgroupAttribute>()) {
-            TraverseExpression(wg->x);
-            TraverseExpression(wg->y);
-            TraverseExpression(wg->z);
+        bool handled = Switch(
+            attr,
+            [&](const ast::BindingAttribute* binding) {
+                TraverseExpression(binding->expr);
+                return true;
+            },
+            [&](const ast::GroupAttribute* group) {
+                TraverseExpression(group->expr);
+                return true;
+            },
+            [&](const ast::IdAttribute* id) {
+                TraverseExpression(id->expr);
+                return true;
+            },
+            [&](const ast::LocationAttribute* loc) {
+                TraverseExpression(loc->expr);
+                return true;
+            },
+            [&](const ast::StructMemberAlignAttribute* align) {
+                TraverseExpression(align->expr);
+                return true;
+            },
+            [&](const ast::StructMemberSizeAttribute* size) {
+                TraverseExpression(size->expr);
+                return true;
+            },
+            [&](const ast::WorkgroupAttribute* wg) {
+                TraverseExpression(wg->x);
+                TraverseExpression(wg->y);
+                TraverseExpression(wg->z);
+                return true;
+            });
+        if (handled) {
             return;
         }
-        if (attr->IsAnyOf<ast::BindingAttribute, ast::BuiltinAttribute, ast::GroupAttribute,
-                          ast::IdAttribute, ast::InternalAttribute, ast::InterpolateAttribute,
-                          ast::InvariantAttribute, ast::LocationAttribute, ast::StageAttribute,
-                          ast::StrideAttribute, ast::StructMemberAlignAttribute,
-                          ast::StructMemberOffsetAttribute, ast::StructMemberSizeAttribute>()) {
+
+        if (attr->IsAnyOf<ast::BuiltinAttribute, ast::InternalAttribute, ast::InterpolateAttribute,
+                          ast::InvariantAttribute, ast::StageAttribute, ast::StrideAttribute,
+                          ast::StructMemberOffsetAttribute>()) {
             return;
         }
 
@@ -491,7 +520,7 @@ struct DependencyAnalysis {
     bool Run(const ast::Module& module) {
         // Reserve container memory
         graph_.resolved_symbols.reserve(module.GlobalDeclarations().Length());
-        sorted_.reserve(module.GlobalDeclarations().Length());
+        sorted_.Reserve(module.GlobalDeclarations().Length());
 
         // Collect all the named globals from the AST module
         GatherGlobals(module);
@@ -505,7 +534,7 @@ struct DependencyAnalysis {
         // Dump the dependency graph if TINT_DUMP_DEPENDENCY_GRAPH is non-zero
         DumpDependencyGraph();
 
-        graph_.ordered_globals = std::move(sorted_);
+        graph_.ordered_globals = sorted_.Release();
 
         return !diagnostics_.contains_errors();
     }
@@ -632,7 +661,7 @@ struct DependencyAnalysis {
         // Make sure all 'enable' directives go before any other global declarations.
         for (auto* global : declaration_order_) {
             if (auto* enable = global->node->As<ast::Enable>()) {
-                sorted_.add(enable);
+                sorted_.Add(enable);
             }
         }
 
@@ -641,31 +670,31 @@ struct DependencyAnalysis {
                 // Skip 'enable' directives here, as they are already added.
                 continue;
             }
-            utils::UniqueVector<const Global*> stack;
+            utils::UniqueVector<const Global*, 8> stack;
             TraverseDependencies(
                 global,
                 [&](const Global* g) {  // Enter
-                    if (!stack.add(g)) {
-                        CyclicDependencyFound(g, stack);
+                    if (!stack.Add(g)) {
+                        CyclicDependencyFound(g, stack.Release());
                         return false;
                     }
-                    if (sorted_.contains(g->node)) {
+                    if (sorted_.Contains(g->node)) {
                         // Visited this global already.
                         // stack was pushed, but exit() will not be called when we return
                         // false, so pop here.
-                        stack.pop_back();
+                        stack.Pop();
                         return false;
                     }
                     return true;
                 },
                 [&](const Global* g) {  // Exit. Only called if Enter returned true.
-                    sorted_.add(g->node);
-                    stack.pop_back();
+                    sorted_.Add(g->node);
+                    stack.Pop();
                 });
 
-            sorted_.add(global->node);
+            sorted_.Add(global->node);
 
-            if (!stack.empty()) {
+            if (!stack.IsEmpty()) {
                 // Each stack.push() must have a corresponding stack.pop_back().
                 TINT_ICE(Resolver, diagnostics_)
                     << "stack not empty after returning from TraverseDependencies()";
@@ -691,12 +720,12 @@ struct DependencyAnalysis {
     /// @param root is the global that starts the cyclic dependency, which must be
     /// found in `stack`.
     /// @param stack is the global dependency stack that contains a loop.
-    void CyclicDependencyFound(const Global* root, const std::vector<const Global*>& stack) {
+    void CyclicDependencyFound(const Global* root, utils::VectorRef<const Global*> stack) {
         std::stringstream msg;
         msg << "cyclic dependency found: ";
         constexpr size_t kLoopNotStarted = ~0u;
         size_t loop_start = kLoopNotStarted;
-        for (size_t i = 0; i < stack.size(); i++) {
+        for (size_t i = 0; i < stack.Length(); i++) {
             auto* e = stack[i];
             if (loop_start == kLoopNotStarted && e == root) {
                 loop_start = i;
@@ -707,9 +736,9 @@ struct DependencyAnalysis {
         }
         msg << "'" << NameOf(root->node) << "'";
         AddError(diagnostics_, msg.str(), root->node->source);
-        for (size_t i = loop_start; i < stack.size(); i++) {
+        for (size_t i = loop_start; i < stack.Length(); i++) {
             auto* from = stack[i];
-            auto* to = (i + 1 < stack.size()) ? stack[i + 1] : stack[loop_start];
+            auto* to = (i + 1 < stack.Length()) ? stack[i + 1] : stack[loop_start];
             auto info = DepInfoFor(from, to);
             AddNote(diagnostics_,
                     KindOf(from->node) + " '" + NameOf(from->node) + "' " + info.action + " " +
@@ -764,7 +793,7 @@ struct DependencyAnalysis {
     std::vector<Global*> declaration_order_;
 
     /// Globals in sorted dependency order. Populated by SortGlobals().
-    utils::UniqueVector<const ast::Node*> sorted_;
+    utils::UniqueVector<const ast::Node*, 64> sorted_;
 };
 
 }  // namespace

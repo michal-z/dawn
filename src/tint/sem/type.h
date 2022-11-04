@@ -19,6 +19,7 @@
 #include <string>
 
 #include "src/tint/sem/node.h"
+#include "src/tint/utils/enum_set.h"
 #include "src/tint/utils/vector.h"
 
 // Forward declarations
@@ -29,12 +30,27 @@ class SymbolTable;
 
 namespace tint::sem {
 
-/// Supported memory layouts for calculating sizes
-enum class MemoryLayout { kUniformBuffer, kStorageBuffer };
+enum TypeFlag {
+    /// Type is constructable.
+    /// @see https://gpuweb.github.io/gpuweb/wgsl/#constructible-types
+    kConstructable,
+    /// Type has a creation-fixed footprint.
+    /// @see https://www.w3.org/TR/WGSL/#fixed-footprint-types
+    kCreationFixedFootprint,
+    /// Type has a fixed footprint.
+    /// @see https://www.w3.org/TR/WGSL/#fixed-footprint-types
+    kFixedFootprint,
+};
+
+/// An alias to utils::EnumSet<TypeFlag>
+using TypeFlags = utils::EnumSet<TypeFlag>;
 
 /// Base class for a type in the system
 class Type : public Castable<Type, Node> {
   public:
+    /// Alias to TypeFlag
+    using Flag = TypeFlag;
+
     /// Move constructor
     Type(Type&&);
     ~Type() override;
@@ -66,9 +82,22 @@ class Type : public Castable<Type, Node> {
     /// @note opaque types will return a size of 0.
     virtual uint32_t Align() const;
 
-    /// @returns true if constructible as per
+    /// @returns the flags on the type
+    TypeFlags Flags() { return flags_; }
+
+    /// @returns true if type is constructable
     /// https://gpuweb.github.io/gpuweb/wgsl/#constructible-types
-    virtual bool IsConstructible() const;
+    inline bool IsConstructible() const { return flags_.Contains(Flag::kConstructable); }
+
+    /// @returns true has a creation-fixed footprint.
+    /// @see https://www.w3.org/TR/WGSL/#fixed-footprint-types
+    inline bool HasCreationFixedFootprint() const {
+        return flags_.Contains(Flag::kCreationFixedFootprint);
+    }
+
+    /// @returns true has a fixed footprint.
+    /// @see https://www.w3.org/TR/WGSL/#fixed-footprint-types
+    inline bool HasFixedFootprint() const { return flags_.Contains(Flag::kFixedFootprint); }
 
     /// @returns true if this type is a scalar
     bool is_scalar() const;
@@ -123,6 +152,10 @@ class Type : public Castable<Type, Node> {
     /// @returns true if this type is a handle type
     bool is_handle() const;
 
+    /// @returns true if this type is an abstract-numeric or if the type holds an element that is an
+    /// abstract-numeric.
+    bool HoldsAbstract() const;
+
     /// kNoConversion is returned from ConversionRank() when the implicit conversion is not
     /// permitted.
     static constexpr uint32_t kNoConversion = 0xffffffffu;
@@ -140,21 +173,19 @@ class Type : public Castable<Type, Node> {
     /// @param count if not null, then this is assigned the number of child elements in the type.
     /// For example, the count of an `array<vec3<f32>, 5>` type would be 5.
     /// @returns
-    ///   * `ty` if `ty` is an abstract or scalar
     ///   * the element type if `ty` is a vector or array
     ///   * the column type if `ty` is a matrix
-    ///   * `nullptr` if `ty` is none of the above
+    ///   * `ty` if `ty` is none of the above
     static const Type* ElementOf(const Type* ty, uint32_t* count = nullptr);
 
     /// @param ty the type to obtain the deepest element type from
     /// @param count if not null, then this is assigned the full number of most deeply nested
     /// elements in the type. For example, the count of an `array<vec3<f32>, 5>` type would be 15.
     /// @returns
-    ///   * `ty` if `ty` is an abstract or scalar
     ///   * the element type if `ty` is a vector
     ///   * the matrix element type if `ty` is a matrix
     ///   * the deepest element type if `ty` is an array
-    ///   * `nullptr` if `ty` is none of the above
+    ///   * `ty` if `ty` is none of the above
     static const Type* DeepestElementOf(const Type* ty, uint32_t* count = nullptr);
 
     /// @param types the list of types
@@ -164,7 +195,12 @@ class Type : public Castable<Type, Node> {
     static const sem::Type* Common(utils::VectorRef<const Type*> types);
 
   protected:
-    Type();
+    /// Constructor
+    /// @param flags the flags of this type
+    explicit Type(TypeFlags flags);
+
+    /// The flags of this type.
+    const TypeFlags flags_;
 };
 
 }  // namespace tint::sem

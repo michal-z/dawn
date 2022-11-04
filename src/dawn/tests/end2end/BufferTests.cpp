@@ -812,15 +812,21 @@ TEST_P(BufferTests, CreateBufferOOM) {
     descriptor.usage = wgpu::BufferUsage::CopyDst;
 
     descriptor.size = std::numeric_limits<uint64_t>::max();
-    ASSERT_DEVICE_ERROR(device.CreateBuffer(&descriptor));
+    // TODO(dawn:1525): remove warning expectation after the deprecation period.
+    ASSERT_DEVICE_ERROR(EXPECT_DEPRECATION_WARNING(device.CreateBuffer(&descriptor)));
 
     // UINT64_MAX may be special cased. Test a smaller, but really large buffer also fails
     descriptor.size = 1ull << 50;
-    ASSERT_DEVICE_ERROR(device.CreateBuffer(&descriptor));
+    // TODO(dawn:1525): remove warning expectation after the deprecation period.
+    ASSERT_DEVICE_ERROR(EXPECT_DEPRECATION_WARNING(device.CreateBuffer(&descriptor)));
 }
 
 // Test that a very large buffer mappedAtCreation fails gracefully.
 TEST_P(BufferTests, BufferMappedAtCreationOOM) {
+    // TODO(crbug.com/dawn/1506): new (std::nothrow) crashes on OOM on Mac ARM64 because libunwind
+    // doesn't see the previous catchall try-catch.
+    DAWN_SUPPRESS_TEST_IF(DAWN_PLATFORM_IS(MACOS) && DAWN_PLATFORM_IS(ARM64));
+
     // TODO(http://crbug.com/dawn/749): Missing support.
     DAWN_TEST_UNSUPPORTED_IF(IsOpenGL());
     DAWN_TEST_UNSUPPORTED_IF(IsOpenGLES());
@@ -842,7 +848,8 @@ TEST_P(BufferTests, BufferMappedAtCreationOOM) {
 
         // UINT64_MAX may be special cased. Test a smaller, but really large buffer also fails
         descriptor.size = 1ull << 50;
-        ASSERT_DEVICE_ERROR(device.CreateBuffer(&descriptor));
+        // TODO(dawn:1525): remove warning expectation after the deprecation period.
+        ASSERT_DEVICE_ERROR(EXPECT_DEPRECATION_WARNING(device.CreateBuffer(&descriptor)));
     }
 
     // Test mappable buffer
@@ -861,7 +868,8 @@ TEST_P(BufferTests, BufferMappedAtCreationOOM) {
 
         // UINT64_MAX may be special cased. Test a smaller, but really large buffer also fails
         descriptor.size = 1ull << 50;
-        ASSERT_DEVICE_ERROR(device.CreateBuffer(&descriptor));
+        // TODO(dawn:1525): remove warning expectation after the deprecation period.
+        ASSERT_DEVICE_ERROR(EXPECT_DEPRECATION_WARNING(device.CreateBuffer(&descriptor)));
     }
 }
 
@@ -874,7 +882,8 @@ TEST_P(BufferTests, CreateBufferOOMMapAsync) {
 
     auto RunTest = [this](const wgpu::BufferDescriptor& descriptor) {
         wgpu::Buffer buffer;
-        ASSERT_DEVICE_ERROR(buffer = device.CreateBuffer(&descriptor));
+        // TODO(dawn:1525): remove warning expectation after the deprecation period.
+        ASSERT_DEVICE_ERROR(EXPECT_DEPRECATION_WARNING(buffer = device.CreateBuffer(&descriptor)));
 
         bool done = false;
         ASSERT_DEVICE_ERROR(buffer.MapAsync(

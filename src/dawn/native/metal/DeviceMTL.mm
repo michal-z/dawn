@@ -107,16 +107,32 @@ void API_AVAILABLE(macos(10.15), ios(14)) UpdateTimestampPeriod(id<MTLDevice> de
 // static
 ResultOrError<Ref<Device>> Device::Create(AdapterBase* adapter,
                                           NSPRef<id<MTLDevice>> mtlDevice,
-                                          const DeviceDescriptor* descriptor) {
-    Ref<Device> device = AcquireRef(new Device(adapter, std::move(mtlDevice), descriptor));
+                                          const DeviceDescriptor* descriptor,
+                                          const TripleStateTogglesSet& userProvidedToggles) {
+    Ref<Device> device =
+        AcquireRef(new Device(adapter, std::move(mtlDevice), descriptor, userProvidedToggles));
     DAWN_TRY(device->Initialize(descriptor));
     return device;
 }
 
 Device::Device(AdapterBase* adapter,
                NSPRef<id<MTLDevice>> mtlDevice,
-               const DeviceDescriptor* descriptor)
-    : DeviceBase(adapter, descriptor), mMtlDevice(std::move(mtlDevice)), mCompletedSerial(0) {}
+               const DeviceDescriptor* descriptor,
+               const TripleStateTogglesSet& userProvidedToggles)
+    : DeviceBase(adapter, descriptor, userProvidedToggles),
+      mMtlDevice(std::move(mtlDevice)),
+      mCompletedSerial(0) {
+    // On macOS < 11.0, we only can check whether counter sampling is supported, and the counter
+    // only can be sampled between command boundary using sampleCountersInBuffer API if it's
+    // supported.
+    if (@available(macOS 11.0, iOS 14.0, *)) {
+        mCounterSamplingAtCommandBoundary = SupportCounterSamplingAtCommandBoundary(GetMTLDevice());
+        mCounterSamplingAtStageBoundary = SupportCounterSamplingAtStageBoundary(GetMTLDevice());
+    } else {
+        mCounterSamplingAtCommandBoundary = true;
+        mCounterSamplingAtStageBoundary = false;
+    }
+}
 
 Device::~Device() {
     Destroy();
@@ -132,7 +148,7 @@ MaybeError Device::Initialize(const DeviceDescriptor* descriptor) {
 
     DAWN_TRY(mCommandContext.PrepareNextCommandBuffer(*mCommandQueue));
 
-    if (IsFeatureEnabled(Feature::TimestampQuery) &&
+    if (HasFeature(Feature::TimestampQuery) &&
         !IsToggleEnabled(Toggle::DisableTimestampQueryConversion)) {
         // Make a best guess of timestamp period based on device vendor info, and converge it to
         // an accurate value by the following calculations.
@@ -212,7 +228,7 @@ void Device::InitTogglesFromDriver() {
         SetToggle(Toggle::MetalRenderR8RG8UnormSmallMipToTempTexture, true);
     }
 
-    // On some Intel GPU vertex only render pipeline get wrong depth result if no fragment
+    // On some Intel GPUs vertex only render pipeline get wrong depth result if no fragment
     // shader provided. Create a placeholder fragment shader module to work around this issue.
     if (gpu_info::IsIntel(vendorId)) {
         bool usePlaceholderFragmentShader = true;
@@ -220,6 +236,22 @@ void Device::InitTogglesFromDriver() {
             usePlaceholderFragmentShader = false;
         }
         SetToggle(Toggle::UsePlaceholderFragmentInVertexOnlyPipeline, usePlaceholderFragmentShader);
+    }
+
+    // On some Intel GPUs using big integer values as clear values in render pass doesn't work
+    // correctly. Currently we have to add workaround for this issue by enabling the toggle
+    // "apply_clear_big_integer_color_value_with_draw". See https://crbug.com/dawn/1109 and
+    // https://crbug.com/dawn/1463 for more details.
+    if (gpu_info::IsIntel(vendorId)) {
+        SetToggle(Toggle::ApplyClearBigIntegerColorValueWithDraw, true);
+    }
+
+    // TODO(dawn:1473): Metal fails to store GPU counters to sampleBufferAttachments on empty
+    // encoders on macOS 11.0+, we need to add dummy blit command to blit encoder when encoding
+    // writeTimestamp as workaround by enabling the toggle
+    // "metal_use_dummy_blit_encoder_for_write_timestamp".
+    if (@available(macos 11.0, iOS 14.0, *)) {
+        SetToggle(Toggle::MetalUseDummyBlitEncoderForWriteTimestamp, true);
     }
 }
 
@@ -311,10 +343,14 @@ ResultOrError<ExecutionSerial> Device::CheckAndUpdateCompletedSerials() {
 }
 
 MaybeError Device::TickImpl() {
-    DAWN_TRY(SubmitPendingCommandBuffer());
+    if (mCommandContext.NeedsSubmit()) {
+        DAWN_TRY(SubmitPendingCommandBuffer());
+    }
 
-    // Just run timestamp period calculation when timestamp feature is enabled.
-    if (IsFeatureEnabled(Feature::TimestampQuery)) {
+    // Just run timestamp period calculation when timestamp feature is enabled and timestamp
+    // conversion is not disabled.
+    if ((HasFeature(Feature::TimestampQuery) || HasFeature(Feature::TimestampQueryInsidePasses)) &&
+        !IsToggleEnabled(Toggle::DisableTimestampQueryConversion)) {
         if (@available(macos 10.15, iOS 14.0, *)) {
             UpdateTimestampPeriod(GetMTLDevice(), mKalmanInfo.get(), &mCpuTimestamp, &mGpuTimestamp,
                                   &mTimestampPeriod);
@@ -332,13 +368,26 @@ id<MTLCommandQueue> Device::GetMTLQueue() {
     return mCommandQueue.Get();
 }
 
-CommandRecordingContext* Device::GetPendingCommandContext() {
+CommandRecordingContext* Device::GetPendingCommandContext(Device::SubmitMode submitMode) {
+    if (submitMode == DeviceBase::SubmitMode::Normal) {
+        mCommandContext.SetNeedsSubmit();
+    }
     mCommandContext.MarkUsed();
     return &mCommandContext;
 }
 
+bool Device::HasPendingCommands() const {
+    return mCommandContext.NeedsSubmit();
+}
+
+void Device::ForceEventualFlushOfCommands() {
+    if (mCommandContext.WasUsed()) {
+        mCommandContext.SetNeedsSubmit();
+    }
+}
+
 MaybeError Device::SubmitPendingCommandBuffer() {
-    if (!mCommandContext.WasUsed()) {
+    if (!mCommandContext.NeedsSubmit()) {
         return {};
     }
 
@@ -390,49 +439,54 @@ ResultOrError<std::unique_ptr<StagingBufferBase>> Device::CreateStagingBuffer(si
     return std::move(stagingBuffer);
 }
 
-MaybeError Device::CopyFromStagingToBuffer(StagingBufferBase* source,
-                                           uint64_t sourceOffset,
-                                           BufferBase* destination,
-                                           uint64_t destinationOffset,
-                                           uint64_t size) {
+MaybeError Device::CopyFromStagingToBufferImpl(StagingBufferBase* source,
+                                               uint64_t sourceOffset,
+                                               BufferBase* destination,
+                                               uint64_t destinationOffset,
+                                               uint64_t size) {
     // Metal validation layers forbid  0-sized copies, assert it is skipped prior to calling
     // this function.
     ASSERT(size != 0);
 
     ToBackend(destination)
-        ->EnsureDataInitializedAsDestination(GetPendingCommandContext(), destinationOffset, size);
+        ->EnsureDataInitializedAsDestination(
+            GetPendingCommandContext(DeviceBase::SubmitMode::Passive), destinationOffset, size);
 
     id<MTLBuffer> uploadBuffer = ToBackend(source)->GetBufferHandle();
     id<MTLBuffer> buffer = ToBackend(destination)->GetMTLBuffer();
-    [GetPendingCommandContext()->EnsureBlit() copyFromBuffer:uploadBuffer
-                                                sourceOffset:sourceOffset
-                                                    toBuffer:buffer
-                                           destinationOffset:destinationOffset
-                                                        size:size];
+    [GetPendingCommandContext(DeviceBase::SubmitMode::Passive)->EnsureBlit()
+           copyFromBuffer:uploadBuffer
+             sourceOffset:sourceOffset
+                 toBuffer:buffer
+        destinationOffset:destinationOffset
+                     size:size];
     return {};
 }
 
 // In Metal we don't write from the CPU to the texture directly which can be done using the
 // replaceRegion function, because the function requires a non-private storage mode and Dawn
 // sets the private storage mode by default for all textures except IOSurfaces on macOS.
-MaybeError Device::CopyFromStagingToTexture(const StagingBufferBase* source,
-                                            const TextureDataLayout& dataLayout,
-                                            TextureCopy* dst,
-                                            const Extent3D& copySizePixels) {
+MaybeError Device::CopyFromStagingToTextureImpl(const StagingBufferBase* source,
+                                                const TextureDataLayout& dataLayout,
+                                                TextureCopy* dst,
+                                                const Extent3D& copySizePixels) {
     Texture* texture = ToBackend(dst->texture.Get());
-    EnsureDestinationTextureInitialized(GetPendingCommandContext(), texture, *dst, copySizePixels);
+    EnsureDestinationTextureInitialized(GetPendingCommandContext(DeviceBase::SubmitMode::Passive),
+                                        texture, *dst, copySizePixels);
 
-    RecordCopyBufferToTexture(GetPendingCommandContext(), ToBackend(source)->GetBufferHandle(),
-                              source->GetSize(), dataLayout.offset, dataLayout.bytesPerRow,
-                              dataLayout.rowsPerImage, texture, dst->mipLevel, dst->origin,
-                              dst->aspect, copySizePixels);
+    RecordCopyBufferToTexture(GetPendingCommandContext(DeviceBase::SubmitMode::Passive),
+                              ToBackend(source)->GetBufferHandle(), source->GetSize(),
+                              dataLayout.offset, dataLayout.bytesPerRow, dataLayout.rowsPerImage,
+                              texture, dst->mipLevel, dst->origin, dst->aspect, copySizePixels);
     return {};
 }
 
 Ref<Texture> Device::CreateTextureWrappingIOSurface(const ExternalImageDescriptor* descriptor,
                                                     IOSurfaceRef ioSurface) {
     const TextureDescriptor* textureDescriptor = FromAPI(descriptor->cTextureDescriptor);
-
+    if (ConsumedError(ValidateIsAlive())) {
+        return nullptr;
+    }
     if (ConsumedError(ValidateTextureDescriptor(this, textureDescriptor))) {
         return nullptr;
     }
@@ -485,6 +539,7 @@ void Device::DestroyImpl() {
 
     mCommandQueue = nullptr;
     mMtlDevice = nullptr;
+    mDummyBlitMtlBuffer = nullptr;
 }
 
 uint32_t Device::GetOptimalBytesPerRowAlignment() const {
@@ -497,6 +552,23 @@ uint64_t Device::GetOptimalBufferToTextureCopyOffsetAlignment() const {
 
 float Device::GetTimestampPeriodInNS() const {
     return mTimestampPeriod;
+}
+
+bool Device::UseCounterSamplingAtCommandBoundary() const {
+    return mCounterSamplingAtCommandBoundary;
+}
+
+bool Device::UseCounterSamplingAtStageBoundary() const {
+    return mCounterSamplingAtStageBoundary;
+}
+
+id<MTLBuffer> Device::GetDummyBlitMtlBuffer() {
+    if (mDummyBlitMtlBuffer == nullptr) {
+        mDummyBlitMtlBuffer.Acquire(
+            [GetMTLDevice() newBufferWithLength:1 options:MTLResourceStorageModePrivate]);
+    }
+
+    return mDummyBlitMtlBuffer.Get();
 }
 
 }  // namespace dawn::native::metal

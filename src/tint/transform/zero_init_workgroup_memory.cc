@@ -31,10 +31,24 @@
 TINT_INSTANTIATE_TYPEINFO(tint::transform::ZeroInitWorkgroupMemory);
 
 namespace tint::transform {
+namespace {
+
+bool ShouldRun(const Program* program) {
+    for (auto* global : program->AST().GlobalVariables()) {
+        if (auto* var = global->As<ast::Var>()) {
+            if (var->declared_address_space == ast::AddressSpace::kWorkgroup) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+}  // namespace
 
 using StatementList = utils::Vector<const ast::Statement*, 8>;
 
-/// PIMPL state for the ZeroInitWorkgroupMemory transform
+/// PIMPL state for the transform
 struct ZeroInitWorkgroupMemory::State {
     /// The clone context
     CloneContext& ctx;
@@ -75,7 +89,7 @@ struct ZeroInitWorkgroupMemory::State {
     };
 
     /// A list of unique ArrayIndex
-    using ArrayIndices = utils::UniqueVector<ArrayIndex, ArrayIndex::Hasher>;
+    using ArrayIndices = utils::UniqueVector<ArrayIndex, 4, ArrayIndex::Hasher>;
 
     /// Expression holds information about an expression that is being built for a
     /// statement will zero workgroup values.
@@ -122,7 +136,7 @@ struct ZeroInitWorkgroupMemory::State {
         // workgroup storage variables used by `fn`. This will populate #statements.
         auto* func = sem.Get(fn);
         for (auto* var : func->TransitivelyReferencedGlobals()) {
-            if (var->StorageClass() == ast::StorageClass::kWorkgroup) {
+            if (var->AddressSpace() == ast::AddressSpace::kWorkgroup) {
                 BuildZeroingStatements(var->Type()->UnwrapRef(), [&](uint32_t num_values) {
                     auto var_name = ctx.Clone(var->Declaration()->symbol);
                     return Expression{b.Expr(var_name), num_values, ArrayIndices{}};
@@ -193,7 +207,7 @@ struct ZeroInitWorkgroupMemory::State {
             ArrayIndices array_indices;
             for (auto& s : stmts) {
                 for (auto& idx : s.array_indices) {
-                    array_indices.add(idx);
+                    array_indices.Add(idx);
                 }
             }
 
@@ -307,11 +321,17 @@ struct ZeroInitWorkgroupMemory::State {
                 //      `num_values * arr->Count()`
                 // The index for this array is:
                 //      `(idx % modulo) / division`
-                auto modulo = num_values * arr->Count();
+                auto count = arr->ConstantCount();
+                if (!count) {
+                    ctx.dst->Diagnostics().add_error(diag::System::Transform,
+                                                     sem::Array::kErrExpectedConstantCount);
+                    return Expression{};
+                }
+                auto modulo = num_values * count.value();
                 auto division = num_values;
                 auto a = get_expr(modulo);
                 auto array_indices = a.array_indices;
-                array_indices.add(ArrayIndex{modulo, division});
+                array_indices.Add(ArrayIndex{modulo, division});
                 auto index = utils::GetOrCreate(array_index_names, ArrayIndex{modulo, division},
                                                 [&] { return b.Symbols().New("i"); });
                 return Expression{b.IndexAccessor(a.expr, index), a.num_iterations, array_indices};
@@ -390,7 +410,7 @@ struct ZeroInitWorkgroupMemory::State {
     }
 
     /// @returns true if a variable with store type `ty` can be efficiently zeroed
-    /// by assignment of a type constructor without operands. If
+    /// by assignment of a type initializer without operands. If
     /// CanTriviallyZero() returns false, then the type needs to be
     /// initialized by decomposing the initialization into multiple
     /// sub-initializations.
@@ -418,24 +438,24 @@ ZeroInitWorkgroupMemory::ZeroInitWorkgroupMemory() = default;
 
 ZeroInitWorkgroupMemory::~ZeroInitWorkgroupMemory() = default;
 
-bool ZeroInitWorkgroupMemory::ShouldRun(const Program* program, const DataMap&) const {
-    for (auto* global : program->AST().GlobalVariables()) {
-        if (auto* var = global->As<ast::Var>()) {
-            if (var->declared_storage_class == ast::StorageClass::kWorkgroup) {
-                return true;
-            }
-        }
+Transform::ApplyResult ZeroInitWorkgroupMemory::Apply(const Program* src,
+                                                      const DataMap&,
+                                                      DataMap&) const {
+    if (!ShouldRun(src)) {
+        return SkipTransform;
     }
-    return false;
-}
 
-void ZeroInitWorkgroupMemory::Run(CloneContext& ctx, const DataMap&, DataMap&) const {
-    for (auto* fn : ctx.src->AST().Functions()) {
+    ProgramBuilder b;
+    CloneContext ctx{&b, src, /* auto_clone_symbols */ true};
+
+    for (auto* fn : src->AST().Functions()) {
         if (fn->PipelineStage() == ast::PipelineStage::kCompute) {
             State{ctx}.Run(fn);
         }
     }
+
     ctx.Clone();
+    return Program(std::move(b));
 }
 
 }  // namespace tint::transform

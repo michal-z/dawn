@@ -15,6 +15,7 @@
 #include "dawn/native/vulkan/DeviceVk.h"
 
 #include "dawn/common/Log.h"
+#include "dawn/common/NonCopyable.h"
 #include "dawn/common/Platform.h"
 #include "dawn/native/BackendConnection.h"
 #include "dawn/native/ChainUtils_autogen.h"
@@ -47,15 +48,43 @@
 
 namespace dawn::native::vulkan {
 
+namespace {
+
+// Destroy the semaphore when out of scope.
+class ScopedSignalSemaphore : public NonMovable {
+  public:
+    ScopedSignalSemaphore(Device* device, VkSemaphore semaphore)
+        : mDevice(device), mSemaphore(semaphore) {}
+    ~ScopedSignalSemaphore() {
+        if (mSemaphore != VK_NULL_HANDLE) {
+            mDevice->GetFencedDeleter()->DeleteWhenUnused(mSemaphore);
+        }
+    }
+
+    VkSemaphore Get() { return mSemaphore; }
+    VkSemaphore* InitializeInto() { return &mSemaphore; }
+
+  private:
+    Device* mDevice = nullptr;
+    VkSemaphore mSemaphore = VK_NULL_HANDLE;
+};
+
+}  // namespace
+
 // static
-ResultOrError<Ref<Device>> Device::Create(Adapter* adapter, const DeviceDescriptor* descriptor) {
-    Ref<Device> device = AcquireRef(new Device(adapter, descriptor));
+ResultOrError<Ref<Device>> Device::Create(Adapter* adapter,
+                                          const DeviceDescriptor* descriptor,
+                                          const TripleStateTogglesSet& userProvidedToggles) {
+    Ref<Device> device = AcquireRef(new Device(adapter, descriptor, userProvidedToggles));
     DAWN_TRY(device->Initialize(descriptor));
     return device;
 }
 
-Device::Device(Adapter* adapter, const DeviceDescriptor* descriptor)
-    : DeviceBase(adapter, descriptor), mDebugPrefix(GetNextDeviceDebugPrefix()) {
+Device::Device(Adapter* adapter,
+               const DeviceDescriptor* descriptor,
+               const TripleStateTogglesSet& userProvidedToggles)
+    : DeviceBase(adapter, descriptor, userProvidedToggles),
+      mDebugPrefix(GetNextDeviceDebugPrefix()) {
     InitTogglesFromDriver();
 }
 
@@ -201,7 +230,7 @@ MaybeError Device::TickImpl() {
     mDeleter->Tick(completedSerial);
     mDescriptorAllocatorsPendingDeallocation.ClearUpTo(completedSerial);
 
-    if (mRecordingContext.used) {
+    if (mRecordingContext.needsSubmit) {
         DAWN_TRY(SubmitPendingCommands());
     }
 
@@ -245,19 +274,48 @@ ResourceMemoryAllocator* Device::GetResourceMemoryAllocator() const {
     return mResourceMemoryAllocator.get();
 }
 
+external_semaphore::Service* Device::GetExternalSemaphoreService() const {
+    return mExternalSemaphoreService.get();
+}
+
 void Device::EnqueueDeferredDeallocation(DescriptorSetAllocator* allocator) {
     mDescriptorAllocatorsPendingDeallocation.Enqueue(allocator, GetPendingCommandSerial());
 }
 
-CommandRecordingContext* Device::GetPendingRecordingContext() {
+CommandRecordingContext* Device::GetPendingRecordingContext(Device::SubmitMode submitMode) {
     ASSERT(mRecordingContext.commandBuffer != VK_NULL_HANDLE);
+    mRecordingContext.needsSubmit |= (submitMode == DeviceBase::SubmitMode::Normal);
     mRecordingContext.used = true;
     return &mRecordingContext;
 }
 
+bool Device::HasPendingCommands() const {
+    return mRecordingContext.needsSubmit;
+}
+
+void Device::ForceEventualFlushOfCommands() {
+    mRecordingContext.needsSubmit |= mRecordingContext.used;
+}
+
 MaybeError Device::SubmitPendingCommands() {
-    if (!mRecordingContext.used) {
+    if (!mRecordingContext.needsSubmit) {
         return {};
+    }
+
+    ScopedSignalSemaphore scopedSignalSemaphore(this, VK_NULL_HANDLE);
+    if (mRecordingContext.externalTexturesForEagerTransition.size() > 0) {
+        // Create an external semaphore for all external textures that have been used in the pending
+        // submit.
+        DAWN_TRY_ASSIGN(*scopedSignalSemaphore.InitializeInto(),
+                        mExternalSemaphoreService->CreateExportableSemaphore());
+    }
+
+    // Transition eagerly all used external textures for export.
+    for (auto* texture : mRecordingContext.externalTexturesForEagerTransition) {
+        texture->TransitionEagerlyForExport(&mRecordingContext);
+        std::vector<VkSemaphore> waitRequirements = texture->AcquireWaitRequirements();
+        mRecordingContext.waitSemaphores.insert(mRecordingContext.waitSemaphores.end(),
+                                                waitRequirements.begin(), waitRequirements.end());
     }
 
     DAWN_TRY(
@@ -272,11 +330,10 @@ MaybeError Device::SubmitPendingCommands() {
     submitInfo.waitSemaphoreCount = static_cast<uint32_t>(mRecordingContext.waitSemaphores.size());
     submitInfo.pWaitSemaphores = AsVkArray(mRecordingContext.waitSemaphores.data());
     submitInfo.pWaitDstStageMask = dstStageMasks.data();
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &mRecordingContext.commandBuffer;
-    submitInfo.signalSemaphoreCount =
-        static_cast<uint32_t>(mRecordingContext.signalSemaphores.size());
-    submitInfo.pSignalSemaphores = AsVkArray(mRecordingContext.signalSemaphores.data());
+    submitInfo.commandBufferCount = mRecordingContext.commandBufferList.size();
+    submitInfo.pCommandBuffers = mRecordingContext.commandBufferList.data();
+    submitInfo.signalSemaphoreCount = (scopedSignalSemaphore.Get() == VK_NULL_HANDLE ? 0 : 1);
+    submitInfo.pSignalSemaphores = AsVkArray(scopedSignalSemaphore.InitializeInto());
 
     VkFence fence = VK_NULL_HANDLE;
     DAWN_TRY_ASSIGN(fence, GetUnusedFence());
@@ -293,17 +350,34 @@ MaybeError Device::SubmitPendingCommands() {
     for (VkSemaphore semaphore : mRecordingContext.waitSemaphores) {
         mDeleter->DeleteWhenUnused(semaphore);
     }
-    for (VkSemaphore semaphore : mRecordingContext.signalSemaphores) {
-        mDeleter->DeleteWhenUnused(semaphore);
-    }
-
     IncrementLastSubmittedCommandSerial();
     ExecutionSerial lastSubmittedSerial = GetLastSubmittedCommandSerial();
     mFencesInFlight.emplace(fence, lastSubmittedSerial);
 
-    CommandPoolAndBuffer submittedCommands = {mRecordingContext.commandPool,
-                                              mRecordingContext.commandBuffer};
-    mCommandsInFlight.Enqueue(submittedCommands, lastSubmittedSerial);
+    for (size_t i = 0; i < mRecordingContext.commandBufferList.size(); ++i) {
+        CommandPoolAndBuffer submittedCommands = {mRecordingContext.commandPoolList[i],
+                                                  mRecordingContext.commandBufferList[i]};
+        mCommandsInFlight.Enqueue(submittedCommands, lastSubmittedSerial);
+    }
+
+    if (mRecordingContext.externalTexturesForEagerTransition.size() > 0) {
+        // Export the signal semaphore.
+        ExternalSemaphoreHandle semaphoreHandle;
+        DAWN_TRY_ASSIGN(semaphoreHandle,
+                        mExternalSemaphoreService->ExportSemaphore(scopedSignalSemaphore.Get()));
+
+        // Update all external textures, eagerly transitioned in the submit, with the exported
+        // handle, and the duplicated handles.
+        bool first = true;
+        for (auto* texture : mRecordingContext.externalTexturesForEagerTransition) {
+            ExternalSemaphoreHandle handle =
+                (first ? semaphoreHandle
+                       : mExternalSemaphoreService->DuplicateHandle(semaphoreHandle));
+            first = false;
+            texture->UpdateExternalSemaphoreHandle(handle);
+        }
+    }
+
     mRecordingContext = CommandRecordingContext();
     DAWN_TRY(PrepareRecordingContext());
 
@@ -387,29 +461,29 @@ ResultOrError<VulkanDeviceKnobs> Device::CreateDevice(VkPhysicalDevice physicalD
         usedKnobs.features.samplerAnisotropy = VK_TRUE;
     }
 
-    if (IsFeatureEnabled(Feature::TextureCompressionBC)) {
+    if (HasFeature(Feature::TextureCompressionBC)) {
         ASSERT(ToBackend(GetAdapter())->GetDeviceInfo().features.textureCompressionBC == VK_TRUE);
         usedKnobs.features.textureCompressionBC = VK_TRUE;
     }
 
-    if (IsFeatureEnabled(Feature::TextureCompressionETC2)) {
+    if (HasFeature(Feature::TextureCompressionETC2)) {
         ASSERT(ToBackend(GetAdapter())->GetDeviceInfo().features.textureCompressionETC2 == VK_TRUE);
         usedKnobs.features.textureCompressionETC2 = VK_TRUE;
     }
 
-    if (IsFeatureEnabled(Feature::TextureCompressionASTC)) {
+    if (HasFeature(Feature::TextureCompressionASTC)) {
         ASSERT(ToBackend(GetAdapter())->GetDeviceInfo().features.textureCompressionASTC_LDR ==
                VK_TRUE);
         usedKnobs.features.textureCompressionASTC_LDR = VK_TRUE;
     }
 
-    if (IsFeatureEnabled(Feature::PipelineStatisticsQuery)) {
+    if (HasFeature(Feature::PipelineStatisticsQuery)) {
         ASSERT(ToBackend(GetAdapter())->GetDeviceInfo().features.pipelineStatisticsQuery ==
                VK_TRUE);
         usedKnobs.features.pipelineStatisticsQuery = VK_TRUE;
     }
 
-    if (IsFeatureEnabled(Feature::DepthClipControl)) {
+    if (HasFeature(Feature::DepthClipControl)) {
         const VulkanDeviceInfo& deviceInfo = ToBackend(GetAdapter())->GetDeviceInfo();
         ASSERT(deviceInfo.HasExt(DeviceExt::DepthClipEnable) &&
                deviceInfo.depthClipEnableFeatures.depthClipEnable == VK_TRUE);
@@ -419,16 +493,20 @@ ResultOrError<VulkanDeviceKnobs> Device::CreateDevice(VkPhysicalDevice physicalD
                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT);
     }
 
-    if (IsFeatureEnabled(Feature::ShaderFloat16)) {
+    // TODO(dawn:1510, tint:1473): After implementing a transform to handle the pipeline input /
+    // output if necessary, relax the requirement of storageInputOutput16.
+    if (HasFeature(Feature::ShaderF16)) {
         const VulkanDeviceInfo& deviceInfo = ToBackend(GetAdapter())->GetDeviceInfo();
         ASSERT(deviceInfo.HasExt(DeviceExt::ShaderFloat16Int8) &&
                deviceInfo.shaderFloat16Int8Features.shaderFloat16 == VK_TRUE &&
                deviceInfo.HasExt(DeviceExt::_16BitStorage) &&
                deviceInfo._16BitStorageFeatures.storageBuffer16BitAccess == VK_TRUE &&
+               deviceInfo._16BitStorageFeatures.storageInputOutput16 == VK_TRUE &&
                deviceInfo._16BitStorageFeatures.uniformAndStorageBuffer16BitAccess == VK_TRUE);
 
         usedKnobs.shaderFloat16Int8Features.shaderFloat16 = VK_TRUE;
         usedKnobs._16BitStorageFeatures.storageBuffer16BitAccess = VK_TRUE;
+        usedKnobs._16BitStorageFeatures.storageInputOutput16 = VK_TRUE;
         usedKnobs._16BitStorageFeatures.uniformAndStorageBuffer16BitAccess = VK_TRUE;
 
         featuresChain.Add(&usedKnobs.shaderFloat16Int8Features,
@@ -543,6 +621,14 @@ void Device::InitTogglesFromDriver() {
 
     // By default try to use S8 if available.
     SetToggle(Toggle::VulkanUseS8, true);
+
+    // dawn:1564: Clearing a depth/stencil buffer in a render pass and then sampling it in a
+    // compute pass in the same command buffer causes a crash on Qualcomm GPUs. To work around that
+    // bug, split the command buffer any time we can detect that situation.
+    if (ToBackend(GetAdapter())->IsAndroidQualcomm()) {
+        ForceSetToggle(Toggle::VulkanSplitCommandBufferOnDepthStencilComputeSampleAfterRenderPass,
+                       true);
+    }
 }
 
 void Device::ApplyDepthStencilFormatToggles() {
@@ -624,13 +710,47 @@ ResultOrError<ExecutionSerial> Device::CheckAndUpdateCompletedSerials() {
 }
 
 MaybeError Device::PrepareRecordingContext() {
-    ASSERT(!mRecordingContext.used);
+    ASSERT(!mRecordingContext.needsSubmit);
     ASSERT(mRecordingContext.commandBuffer == VK_NULL_HANDLE);
     ASSERT(mRecordingContext.commandPool == VK_NULL_HANDLE);
 
+    CommandPoolAndBuffer commands;
+    DAWN_TRY_ASSIGN(commands, BeginVkCommandBuffer());
+
+    mRecordingContext.commandBuffer = commands.commandBuffer;
+    mRecordingContext.commandPool = commands.pool;
+    mRecordingContext.commandBufferList.push_back(commands.commandBuffer);
+    mRecordingContext.commandPoolList.push_back(commands.pool);
+
+    return {};
+}
+
+// Splits the recording context, ending the current command buffer and beginning a new one.
+// This should not be necessary in most cases, and is provided only to work around driver issues
+// on some hardware.
+MaybeError Device::SplitRecordingContext(CommandRecordingContext* recordingContext) {
+    ASSERT(recordingContext->used);
+
+    DAWN_TRY(
+        CheckVkSuccess(fn.EndCommandBuffer(recordingContext->commandBuffer), "vkEndCommandBuffer"));
+
+    CommandPoolAndBuffer commands;
+    DAWN_TRY_ASSIGN(commands, BeginVkCommandBuffer());
+
+    recordingContext->commandBuffer = commands.commandBuffer;
+    recordingContext->commandPool = commands.pool;
+    recordingContext->commandBufferList.push_back(commands.commandBuffer);
+    recordingContext->commandPoolList.push_back(commands.pool);
+
+    return {};
+}
+
+ResultOrError<Device::CommandPoolAndBuffer> Device::BeginVkCommandBuffer() {
+    CommandPoolAndBuffer commands;
+
     // First try to recycle unused command pools.
     if (!mUnusedCommands.empty()) {
-        CommandPoolAndBuffer commands = mUnusedCommands.back();
+        commands = mUnusedCommands.back();
         mUnusedCommands.pop_back();
         DAWN_TRY_WITH_CLEANUP(
             CheckVkSuccess(fn.ResetCommandPool(mVkDevice, commands.pool, 0), "vkResetCommandPool"),
@@ -647,9 +767,6 @@ MaybeError Device::PrepareRecordingContext() {
                 fn.FreeCommandBuffers(mVkDevice, commands.pool, 1, &commands.commandBuffer);
                 fn.DestroyCommandPool(mVkDevice, commands.pool, nullptr);
             });
-
-        mRecordingContext.commandBuffer = commands.commandBuffer;
-        mRecordingContext.commandPool = commands.pool;
     } else {
         // Create a new command pool for our commands and allocate the command buffer.
         VkCommandPoolCreateInfo createInfo;
@@ -658,19 +775,19 @@ MaybeError Device::PrepareRecordingContext() {
         createInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
         createInfo.queueFamilyIndex = mQueueFamily;
 
-        DAWN_TRY(CheckVkSuccess(
-            fn.CreateCommandPool(mVkDevice, &createInfo, nullptr, &*mRecordingContext.commandPool),
-            "vkCreateCommandPool"));
+        DAWN_TRY(
+            CheckVkSuccess(fn.CreateCommandPool(mVkDevice, &createInfo, nullptr, &*commands.pool),
+                           "vkCreateCommandPool"));
 
         VkCommandBufferAllocateInfo allocateInfo;
         allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocateInfo.pNext = nullptr;
-        allocateInfo.commandPool = mRecordingContext.commandPool;
+        allocateInfo.commandPool = commands.pool;
         allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocateInfo.commandBufferCount = 1;
 
         DAWN_TRY(CheckVkSuccess(
-            fn.AllocateCommandBuffers(mVkDevice, &allocateInfo, &mRecordingContext.commandBuffer),
+            fn.AllocateCommandBuffers(mVkDevice, &allocateInfo, &commands.commandBuffer),
             "vkAllocateCommandBuffers"));
     }
 
@@ -681,8 +798,10 @@ MaybeError Device::PrepareRecordingContext() {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo = nullptr;
 
-    return CheckVkSuccess(fn.BeginCommandBuffer(mRecordingContext.commandBuffer, &beginInfo),
-                          "vkBeginCommandBuffer");
+    DAWN_TRY(CheckVkSuccess(fn.BeginCommandBuffer(commands.commandBuffer, &beginInfo),
+                            "vkBeginCommandBuffer"));
+
+    return commands;
 }
 
 void Device::RecycleCompletedCommands() {
@@ -698,16 +817,17 @@ ResultOrError<std::unique_ptr<StagingBufferBase>> Device::CreateStagingBuffer(si
     return std::move(stagingBuffer);
 }
 
-MaybeError Device::CopyFromStagingToBuffer(StagingBufferBase* source,
-                                           uint64_t sourceOffset,
-                                           BufferBase* destination,
-                                           uint64_t destinationOffset,
-                                           uint64_t size) {
+MaybeError Device::CopyFromStagingToBufferImpl(StagingBufferBase* source,
+                                               uint64_t sourceOffset,
+                                               BufferBase* destination,
+                                               uint64_t destinationOffset,
+                                               uint64_t size) {
     // It is a validation error to do a 0-sized copy in Vulkan, check it is skipped prior to
     // calling this function.
     ASSERT(size != 0);
 
-    CommandRecordingContext* recordingContext = GetPendingRecordingContext();
+    CommandRecordingContext* recordingContext =
+        GetPendingRecordingContext(DeviceBase::SubmitMode::Passive);
 
     ToBackend(destination)
         ->EnsureDataInitializedAsDestination(recordingContext, destinationOffset, size);
@@ -731,15 +851,16 @@ MaybeError Device::CopyFromStagingToBuffer(StagingBufferBase* source,
     return {};
 }
 
-MaybeError Device::CopyFromStagingToTexture(const StagingBufferBase* source,
-                                            const TextureDataLayout& src,
-                                            TextureCopy* dst,
-                                            const Extent3D& copySizePixels) {
+MaybeError Device::CopyFromStagingToTextureImpl(const StagingBufferBase* source,
+                                                const TextureDataLayout& src,
+                                                TextureCopy* dst,
+                                                const Extent3D& copySizePixels) {
     // There is no need of a barrier to make host writes available and visible to the copy
     // operation for HOST_COHERENT memory. The Vulkan spec for vkQueueSubmit describes that it
     // does an implicit availability, visibility and domain operation.
 
-    CommandRecordingContext* recordingContext = GetPendingRecordingContext();
+    CommandRecordingContext* recordingContext =
+        GetPendingRecordingContext(DeviceBase::SubmitMode::Passive);
 
     VkBufferImageCopy region = ComputeBufferImageCopyRegion(src, *dst, copySizePixels);
     VkImageSubresourceLayers subresource = region.imageSubresource;
@@ -770,7 +891,6 @@ MaybeError Device::ImportExternalImage(const ExternalImageDescriptorVk* descript
                                        ExternalMemoryHandle memoryHandle,
                                        VkImage image,
                                        const std::vector<ExternalSemaphoreHandle>& waitHandles,
-                                       VkSemaphore* outSignalSemaphore,
                                        VkDeviceMemory* outAllocation,
                                        std::vector<VkSemaphore>* outWaitSemaphores) {
     const TextureDescriptor* textureDescriptor = FromAPI(descriptor->cTextureDescriptor);
@@ -793,9 +913,6 @@ MaybeError Device::ImportExternalImage(const ExternalImageDescriptorVk* descript
                         VulkanImageUsage(usage, GetValidInternalFormat(textureDescriptor->format)),
                         VK_IMAGE_CREATE_ALIAS_BIT_KHR),
                     "External memory usage not supported");
-
-    // Create an external semaphore to signal when the texture is done being used
-    DAWN_TRY_ASSIGN(*outSignalSemaphore, mExternalSemaphoreService->CreateExportableSemaphore());
 
     // Import the external image's memory
     external_memory::MemoryImportParams importParams;
@@ -821,15 +938,12 @@ bool Device::SignalAndExportExternalTexture(
     return !ConsumedError([&]() -> MaybeError {
         DAWN_TRY(ValidateObject(texture));
 
-        VkSemaphore signalSemaphore;
+        ExternalSemaphoreHandle semaphoreHandle;
         VkImageLayout releasedOldLayout;
         VkImageLayout releasedNewLayout;
-        DAWN_TRY(texture->ExportExternalTexture(desiredLayout, &signalSemaphore, &releasedOldLayout,
+        DAWN_TRY(texture->ExportExternalTexture(desiredLayout, &semaphoreHandle, &releasedOldLayout,
                                                 &releasedNewLayout));
 
-        ExternalSemaphoreHandle semaphoreHandle;
-        DAWN_TRY_ASSIGN(semaphoreHandle,
-                        mExternalSemaphoreService->ExportSemaphore(signalSemaphore));
         semaphoreHandles->push_back(semaphoreHandle);
         info->releasedOldLayout = releasedOldLayout;
         info->releasedNewLayout = releasedNewLayout;
@@ -847,6 +961,9 @@ TextureBase* Device::CreateTextureWrappingVulkanImage(
     const TextureDescriptor* textureDescriptor = FromAPI(descriptor->cTextureDescriptor);
 
     // Initial validation
+    if (ConsumedError(ValidateIsAlive())) {
+        return nullptr;
+    }
     if (ConsumedError(ValidateTextureDescriptor(this, textureDescriptor))) {
         return nullptr;
     }
@@ -856,7 +973,6 @@ TextureBase* Device::CreateTextureWrappingVulkanImage(
         return nullptr;
     }
 
-    VkSemaphore signalSemaphore = VK_NULL_HANDLE;
     VkDeviceMemory allocation = VK_NULL_HANDLE;
     std::vector<VkSemaphore> waitSemaphores;
     waitSemaphores.reserve(waitHandles.size());
@@ -869,17 +985,12 @@ TextureBase* Device::CreateTextureWrappingVulkanImage(
                                                   mExternalMemoryService.get()),
                       &result) ||
         ConsumedError(ImportExternalImage(descriptor, memoryHandle, result->GetHandle(),
-                                          waitHandles, &signalSemaphore, &allocation,
-                                          &waitSemaphores)) ||
-        ConsumedError(
-            result->BindExternalMemory(descriptor, signalSemaphore, allocation, waitSemaphores))) {
+                                          waitHandles, &allocation, &waitSemaphores)) ||
+        ConsumedError(result->BindExternalMemory(descriptor, allocation, waitSemaphores))) {
         // Delete the Texture if it was created
         if (result != nullptr) {
             result->Release();
         }
-
-        // Clear the signal semaphore
-        fn.DestroySemaphore(GetVkDevice(), signalSemaphore, nullptr);
 
         // Clear image memory
         fn.FreeMemory(GetVkDevice(), allocation, nullptr);
@@ -923,6 +1034,21 @@ void Device::AppendDebugLayerMessages(ErrorData* error) {
         error->AppendBackendMessage(std::move(mDebugMessages.back()));
         mDebugMessages.pop_back();
     }
+}
+
+void Device::CheckDebugMessagesAfterDestruction() const {
+    if (!GetAdapter()->GetInstance()->IsBackendValidationEnabled() || mDebugMessages.empty()) {
+        return;
+    }
+
+    dawn::ErrorLog()
+        << "Some VVL messages were not handled before dawn::native::vulkan::Device destruction:";
+    for (const auto& message : mDebugMessages) {
+        dawn::ErrorLog() << " - " << message;
+    }
+
+    // Crash in debug
+    UNREACHABLE();
 }
 
 MaybeError Device::WaitForIdleForDestruction() {
@@ -999,7 +1125,7 @@ void Device::DestroyImpl() {
     ToBackend(GetAdapter())->GetVulkanInstance()->StopListeningForDeviceMessages(this);
 
     // Immediately tag the recording context as unused so we don't try to submit it in Tick.
-    mRecordingContext.used = false;
+    mRecordingContext.needsSubmit = false;
     if (mRecordingContext.commandPool != VK_NULL_HANDLE) {
         // The VkCommandBuffer memory should be wholly owned by the pool and freed when it is
         // destroyed, but that's not the case in some drivers and the leak memory.
@@ -1014,11 +1140,6 @@ void Device::DestroyImpl() {
         fn.DestroySemaphore(mVkDevice, semaphore, nullptr);
     }
     mRecordingContext.waitSemaphores.clear();
-
-    for (VkSemaphore semaphore : mRecordingContext.signalSemaphores) {
-        fn.DestroySemaphore(mVkDevice, semaphore, nullptr);
-    }
-    mRecordingContext.signalSemaphores.clear();
 
     // Some commands might still be marked as in-flight if we shut down because of a device
     // loss. Recycle them as unused so that we free them below.
@@ -1079,6 +1200,11 @@ void Device::DestroyImpl() {
     ASSERT(mVkDevice != VK_NULL_HANDLE);
     fn.DestroyDevice(mVkDevice, nullptr);
     mVkDevice = VK_NULL_HANDLE;
+
+    // No additonal Vulkan commands should be done by this device after this function. Check for any
+    // remaining Vulkan Validation Layer messages that may have been added during destruction or not
+    // handled prior to destruction.
+    CheckDebugMessagesAfterDestruction();
 }
 
 uint32_t Device::GetOptimalBytesPerRowAlignment() const {

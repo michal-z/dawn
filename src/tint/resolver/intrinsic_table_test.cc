@@ -28,8 +28,8 @@
 #include "src/tint/sem/sampled_texture.h"
 #include "src/tint/sem/storage_texture.h"
 #include "src/tint/sem/test_helper.h"
-#include "src/tint/sem/type_constructor.h"
 #include "src/tint/sem/type_conversion.h"
+#include "src/tint/sem/type_initializer.h"
 
 namespace tint::resolver {
 namespace {
@@ -53,7 +53,8 @@ class IntrinsicTableTest : public testing::Test, public ProgramBuilder {
 
 TEST_F(IntrinsicTableTest, MatchF32) {
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(BuiltinType::kCos, utils::Vector{f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kCos, utils::Vector{f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kCos);
@@ -64,7 +65,8 @@ TEST_F(IntrinsicTableTest, MatchF32) {
 
 TEST_F(IntrinsicTableTest, MismatchF32) {
     auto* i32 = create<sem::I32>();
-    auto result = table->Lookup(BuiltinType::kCos, utils::Vector{i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kCos, utils::Vector{i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -73,10 +75,11 @@ TEST_F(IntrinsicTableTest, MatchU32) {
     auto* f32 = create<sem::F32>();
     auto* u32 = create<sem::U32>();
     auto* vec2_f32 = create<sem::Vector>(f32, 2u);
-    auto result = table->Lookup(BuiltinType::kUnpack2x16float, utils::Vector{u32}, Source{});
+    auto result = table->Lookup(BuiltinType::kUnpack2X16Float, utils::Vector{u32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
-    EXPECT_EQ(result.sem->Type(), BuiltinType::kUnpack2x16float);
+    EXPECT_EQ(result.sem->Type(), BuiltinType::kUnpack2X16Float);
     EXPECT_EQ(result.sem->ReturnType(), vec2_f32);
     ASSERT_EQ(result.sem->Parameters().Length(), 1u);
     EXPECT_EQ(result.sem->Parameters()[0]->Type(), u32);
@@ -84,7 +87,8 @@ TEST_F(IntrinsicTableTest, MatchU32) {
 
 TEST_F(IntrinsicTableTest, MismatchU32) {
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(BuiltinType::kUnpack2x16float, utils::Vector{f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kUnpack2X16Float, utils::Vector{f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -94,7 +98,8 @@ TEST_F(IntrinsicTableTest, MatchI32) {
     auto* i32 = create<sem::I32>();
     auto* vec4_f32 = create<sem::Vector>(f32, 4u);
     auto* tex = create<sem::SampledTexture>(ast::TextureDimension::k1d, f32);
-    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, i32, i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, i32, i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kTextureLoad);
@@ -111,14 +116,16 @@ TEST_F(IntrinsicTableTest, MatchI32) {
 TEST_F(IntrinsicTableTest, MismatchI32) {
     auto* f32 = create<sem::F32>();
     auto* tex = create<sem::SampledTexture>(ast::TextureDimension::k1d, f32);
-    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
 
 TEST_F(IntrinsicTableTest, MatchIU32AsI32) {
     auto* i32 = create<sem::I32>();
-    auto result = table->Lookup(BuiltinType::kCountOneBits, utils::Vector{i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kCountOneBits, utils::Vector{i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kCountOneBits);
@@ -129,7 +136,8 @@ TEST_F(IntrinsicTableTest, MatchIU32AsI32) {
 
 TEST_F(IntrinsicTableTest, MatchIU32AsU32) {
     auto* u32 = create<sem::U32>();
-    auto result = table->Lookup(BuiltinType::kCountOneBits, utils::Vector{u32}, Source{});
+    auto result = table->Lookup(BuiltinType::kCountOneBits, utils::Vector{u32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kCountOneBits);
@@ -140,14 +148,16 @@ TEST_F(IntrinsicTableTest, MatchIU32AsU32) {
 
 TEST_F(IntrinsicTableTest, MismatchIU32) {
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(BuiltinType::kCountOneBits, utils::Vector{f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kCountOneBits, utils::Vector{f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
 
 TEST_F(IntrinsicTableTest, MatchFIU32AsI32) {
     auto* i32 = create<sem::I32>();
-    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{i32, i32, i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{i32, i32, i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kClamp);
@@ -160,7 +170,8 @@ TEST_F(IntrinsicTableTest, MatchFIU32AsI32) {
 
 TEST_F(IntrinsicTableTest, MatchFIU32AsU32) {
     auto* u32 = create<sem::U32>();
-    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{u32, u32, u32}, Source{});
+    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{u32, u32, u32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kClamp);
@@ -173,7 +184,8 @@ TEST_F(IntrinsicTableTest, MatchFIU32AsU32) {
 
 TEST_F(IntrinsicTableTest, MatchFIU32AsF32) {
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{f32, f32, f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{f32, f32, f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kClamp);
@@ -186,7 +198,8 @@ TEST_F(IntrinsicTableTest, MatchFIU32AsF32) {
 
 TEST_F(IntrinsicTableTest, MismatchFIU32) {
     auto* bool_ = create<sem::Bool>();
-    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{bool_, bool_, bool_}, Source{});
+    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{bool_, bool_, bool_},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -194,7 +207,8 @@ TEST_F(IntrinsicTableTest, MismatchFIU32) {
 TEST_F(IntrinsicTableTest, MatchBool) {
     auto* f32 = create<sem::F32>();
     auto* bool_ = create<sem::Bool>();
-    auto result = table->Lookup(BuiltinType::kSelect, utils::Vector{f32, f32, bool_}, Source{});
+    auto result = table->Lookup(BuiltinType::kSelect, utils::Vector{f32, f32, bool_},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kSelect);
@@ -207,7 +221,8 @@ TEST_F(IntrinsicTableTest, MatchBool) {
 
 TEST_F(IntrinsicTableTest, MismatchBool) {
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(BuiltinType::kSelect, utils::Vector{f32, f32, f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kSelect, utils::Vector{f32, f32, f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -216,8 +231,9 @@ TEST_F(IntrinsicTableTest, MatchPointer) {
     auto* i32 = create<sem::I32>();
     auto* atomicI32 = create<sem::Atomic>(i32);
     auto* ptr =
-        create<sem::Pointer>(atomicI32, ast::StorageClass::kWorkgroup, ast::Access::kReadWrite);
-    auto result = table->Lookup(BuiltinType::kAtomicLoad, utils::Vector{ptr}, Source{});
+        create<sem::Pointer>(atomicI32, ast::AddressSpace::kWorkgroup, ast::Access::kReadWrite);
+    auto result = table->Lookup(BuiltinType::kAtomicLoad, utils::Vector{ptr},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kAtomicLoad);
@@ -229,15 +245,17 @@ TEST_F(IntrinsicTableTest, MatchPointer) {
 TEST_F(IntrinsicTableTest, MismatchPointer) {
     auto* i32 = create<sem::I32>();
     auto* atomicI32 = create<sem::Atomic>(i32);
-    auto result = table->Lookup(BuiltinType::kAtomicLoad, utils::Vector{atomicI32}, Source{});
+    auto result = table->Lookup(BuiltinType::kAtomicLoad, utils::Vector{atomicI32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
 
 TEST_F(IntrinsicTableTest, MatchArray) {
-    auto* arr = create<sem::Array>(create<sem::U32>(), 0u, 4u, 4u, 4u, 4u);
-    auto* arr_ptr = create<sem::Pointer>(arr, ast::StorageClass::kStorage, ast::Access::kReadWrite);
-    auto result = table->Lookup(BuiltinType::kArrayLength, utils::Vector{arr_ptr}, Source{});
+    auto* arr = create<sem::Array>(create<sem::U32>(), sem::RuntimeArrayCount{}, 4u, 4u, 4u, 4u);
+    auto* arr_ptr = create<sem::Pointer>(arr, ast::AddressSpace::kStorage, ast::Access::kReadWrite);
+    auto result = table->Lookup(BuiltinType::kArrayLength, utils::Vector{arr_ptr},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kArrayLength);
@@ -250,7 +268,8 @@ TEST_F(IntrinsicTableTest, MatchArray) {
 
 TEST_F(IntrinsicTableTest, MismatchArray) {
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(BuiltinType::kArrayLength, utils::Vector{f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kArrayLength, utils::Vector{f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -261,8 +280,8 @@ TEST_F(IntrinsicTableTest, MatchSampler) {
     auto* vec4_f32 = create<sem::Vector>(f32, 4u);
     auto* tex = create<sem::SampledTexture>(ast::TextureDimension::k2d, f32);
     auto* sampler = create<sem::Sampler>(ast::SamplerKind::kSampler);
-    auto result =
-        table->Lookup(BuiltinType::kTextureSample, utils::Vector{tex, sampler, vec2_f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureSample, utils::Vector{tex, sampler, vec2_f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kTextureSample);
@@ -280,8 +299,8 @@ TEST_F(IntrinsicTableTest, MismatchSampler) {
     auto* f32 = create<sem::F32>();
     auto* vec2_f32 = create<sem::Vector>(f32, 2u);
     auto* tex = create<sem::SampledTexture>(ast::TextureDimension::k2d, f32);
-    auto result =
-        table->Lookup(BuiltinType::kTextureSample, utils::Vector{tex, f32, vec2_f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureSample, utils::Vector{tex, f32, vec2_f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -292,8 +311,8 @@ TEST_F(IntrinsicTableTest, MatchSampledTexture) {
     auto* vec2_i32 = create<sem::Vector>(i32, 2u);
     auto* vec4_f32 = create<sem::Vector>(f32, 4u);
     auto* tex = create<sem::SampledTexture>(ast::TextureDimension::k2d, f32);
-    auto result =
-        table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32, i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32, i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kTextureLoad);
@@ -313,8 +332,8 @@ TEST_F(IntrinsicTableTest, MatchMultisampledTexture) {
     auto* vec2_i32 = create<sem::Vector>(i32, 2u);
     auto* vec4_f32 = create<sem::Vector>(f32, 4u);
     auto* tex = create<sem::MultisampledTexture>(ast::TextureDimension::k2d, f32);
-    auto result =
-        table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32, i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32, i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kTextureLoad);
@@ -333,8 +352,8 @@ TEST_F(IntrinsicTableTest, MatchDepthTexture) {
     auto* i32 = create<sem::I32>();
     auto* vec2_i32 = create<sem::Vector>(i32, 2u);
     auto* tex = create<sem::DepthTexture>(ast::TextureDimension::k2d);
-    auto result =
-        table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32, i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32, i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kTextureLoad);
@@ -353,8 +372,8 @@ TEST_F(IntrinsicTableTest, MatchDepthMultisampledTexture) {
     auto* i32 = create<sem::I32>();
     auto* vec2_i32 = create<sem::Vector>(i32, 2u);
     auto* tex = create<sem::DepthMultisampledTexture>(ast::TextureDimension::k2d);
-    auto result =
-        table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32, i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32, i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kTextureLoad);
@@ -374,7 +393,8 @@ TEST_F(IntrinsicTableTest, MatchExternalTexture) {
     auto* vec2_i32 = create<sem::Vector>(i32, 2u);
     auto* vec4_f32 = create<sem::Vector>(f32, 4u);
     auto* tex = create<sem::ExternalTexture>();
-    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{tex, vec2_i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kTextureLoad);
@@ -395,8 +415,8 @@ TEST_F(IntrinsicTableTest, MatchWOStorageTexture) {
     auto* tex = create<sem::StorageTexture>(ast::TextureDimension::k2d, ast::TexelFormat::kR32Float,
                                             ast::Access::kWrite, subtype);
 
-    auto result =
-        table->Lookup(BuiltinType::kTextureStore, utils::Vector{tex, vec2_i32, vec4_f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureStore, utils::Vector{tex, vec2_i32, vec4_f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kTextureStore);
@@ -414,7 +434,8 @@ TEST_F(IntrinsicTableTest, MismatchTexture) {
     auto* f32 = create<sem::F32>();
     auto* i32 = create<sem::I32>();
     auto* vec2_i32 = create<sem::Vector>(i32, 2u);
-    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{f32, vec2_i32}, Source{});
+    auto result = table->Lookup(BuiltinType::kTextureLoad, utils::Vector{f32, vec2_i32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -424,9 +445,9 @@ TEST_F(IntrinsicTableTest, ImplicitLoadOnReference) {
     auto result = table->Lookup(
         BuiltinType::kCos,
         utils::Vector{
-            create<sem::Reference>(f32, ast::StorageClass::kFunction, ast::Access::kReadWrite),
+            create<sem::Reference>(f32, ast::AddressSpace::kFunction, ast::Access::kReadWrite),
         },
-        Source{});
+        sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kCos);
@@ -437,7 +458,8 @@ TEST_F(IntrinsicTableTest, ImplicitLoadOnReference) {
 
 TEST_F(IntrinsicTableTest, MatchTemplateType) {
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{f32, f32, f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{f32, f32, f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kClamp);
@@ -450,7 +472,8 @@ TEST_F(IntrinsicTableTest, MatchTemplateType) {
 TEST_F(IntrinsicTableTest, MismatchTemplateType) {
     auto* f32 = create<sem::F32>();
     auto* u32 = create<sem::U32>();
-    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{f32, u32, f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{f32, u32, f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -458,8 +481,8 @@ TEST_F(IntrinsicTableTest, MismatchTemplateType) {
 TEST_F(IntrinsicTableTest, MatchOpenSizeVector) {
     auto* f32 = create<sem::F32>();
     auto* vec2_f32 = create<sem::Vector>(f32, 2u);
-    auto result =
-        table->Lookup(BuiltinType::kClamp, utils::Vector{vec2_f32, vec2_f32, vec2_f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{vec2_f32, vec2_f32, vec2_f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kClamp);
@@ -474,8 +497,8 @@ TEST_F(IntrinsicTableTest, MismatchOpenSizeVector) {
     auto* f32 = create<sem::F32>();
     auto* u32 = create<sem::U32>();
     auto* vec2_f32 = create<sem::Vector>(f32, 2u);
-    auto result =
-        table->Lookup(BuiltinType::kClamp, utils::Vector{vec2_f32, u32, vec2_f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kClamp, utils::Vector{vec2_f32, u32, vec2_f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -484,7 +507,8 @@ TEST_F(IntrinsicTableTest, MatchOpenSizeMatrix) {
     auto* f32 = create<sem::F32>();
     auto* vec3_f32 = create<sem::Vector>(f32, 3u);
     auto* mat3_f32 = create<sem::Matrix>(vec3_f32, 3u);
-    auto result = table->Lookup(BuiltinType::kDeterminant, utils::Vector{mat3_f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kDeterminant, utils::Vector{mat3_f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
     EXPECT_EQ(result.sem->Type(), BuiltinType::kDeterminant);
@@ -497,85 +521,147 @@ TEST_F(IntrinsicTableTest, MismatchOpenSizeMatrix) {
     auto* f32 = create<sem::F32>();
     auto* vec2_f32 = create<sem::Vector>(f32, 2u);
     auto* mat3x2_f32 = create<sem::Matrix>(vec2_f32, 3u);
-    auto result = table->Lookup(BuiltinType::kDeterminant, utils::Vector{mat3x2_f32}, Source{});
+    auto result = table->Lookup(BuiltinType::kDeterminant, utils::Vector{mat3x2_f32},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
+}
+
+TEST_F(IntrinsicTableTest, MatchDifferentArgsElementType_Builtin_ConstantEval) {
+    auto* af = create<sem::AbstractFloat>();
+    auto* bool_ = create<sem::Bool>();
+    auto result = table->Lookup(BuiltinType::kSelect, utils::Vector{af, af, bool_},
+                                sem::EvaluationStage::kConstant, Source{});
+    ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
+    ASSERT_EQ(Diagnostics().str(), "");
+    EXPECT_EQ(result.sem->Stage(), sem::EvaluationStage::kConstant);
+    EXPECT_EQ(result.sem->Type(), BuiltinType::kSelect);
+    EXPECT_EQ(result.sem->ReturnType(), af);
+    ASSERT_EQ(result.sem->Parameters().Length(), 3u);
+    EXPECT_EQ(result.sem->Parameters()[0]->Type(), af);
+    EXPECT_EQ(result.sem->Parameters()[1]->Type(), af);
+    EXPECT_EQ(result.sem->Parameters()[2]->Type(), bool_);
+}
+
+TEST_F(IntrinsicTableTest, MatchDifferentArgsElementType_Builtin_RuntimeEval) {
+    auto* af = create<sem::AbstractFloat>();
+    auto* bool_ref = create<sem::Reference>(create<sem::Bool>(), ast::AddressSpace::kFunction,
+                                            ast::Access::kReadWrite);
+    auto result = table->Lookup(BuiltinType::kSelect, utils::Vector{af, af, bool_ref},
+                                sem::EvaluationStage::kRuntime, Source{});
+    ASSERT_NE(result.sem, nullptr) << Diagnostics().str();
+    ASSERT_EQ(Diagnostics().str(), "");
+    EXPECT_EQ(result.sem->Stage(), sem::EvaluationStage::kConstant);
+    EXPECT_EQ(result.sem->Type(), BuiltinType::kSelect);
+    EXPECT_TRUE(result.sem->ReturnType()->Is<sem::F32>());
+    ASSERT_EQ(result.sem->Parameters().Length(), 3u);
+    EXPECT_TRUE(result.sem->Parameters()[0]->Type()->Is<sem::F32>());
+    EXPECT_TRUE(result.sem->Parameters()[1]->Type()->Is<sem::F32>());
+    EXPECT_TRUE(result.sem->Parameters()[2]->Type()->Is<sem::Bool>());
+}
+
+TEST_F(IntrinsicTableTest, MatchDifferentArgsElementType_Binary_ConstantEval) {
+    auto* ai = create<sem::AbstractInt>();
+    auto* u32 = create<sem::U32>();
+    auto result = table->Lookup(ast::BinaryOp::kShiftLeft, ai, u32, sem::EvaluationStage::kConstant,
+                                Source{}, false);
+    ASSERT_NE(result.result, nullptr) << Diagnostics().str();
+    ASSERT_NE(result.const_eval_fn, nullptr) << Diagnostics().str();
+    ASSERT_EQ(Diagnostics().str(), "");
+    EXPECT_EQ(result.result, ai);
+    EXPECT_EQ(result.lhs, ai);
+    EXPECT_EQ(result.rhs, u32);
+}
+
+TEST_F(IntrinsicTableTest, MatchDifferentArgsElementType_Binary_RuntimeEval) {
+    auto* ai = create<sem::AbstractInt>();
+    auto* u32 = create<sem::U32>();
+    auto result = table->Lookup(ast::BinaryOp::kShiftLeft, ai, u32, sem::EvaluationStage::kRuntime,
+                                Source{}, false);
+    ASSERT_NE(result.result, nullptr) << Diagnostics().str();
+    ASSERT_NE(result.const_eval_fn, nullptr) << Diagnostics().str();
+    ASSERT_EQ(Diagnostics().str(), "");
+    EXPECT_TRUE(result.result->Is<sem::I32>());
+    EXPECT_TRUE(result.lhs->Is<sem::I32>());
+    EXPECT_TRUE(result.rhs->Is<sem::U32>());
 }
 
 TEST_F(IntrinsicTableTest, OverloadOrderByNumberOfParameters) {
     // None of the arguments match, so expect the overloads with 2 parameters to
     // come first
     auto* bool_ = create<sem::Bool>();
-    table->Lookup(BuiltinType::kTextureDimensions, utils::Vector{bool_, bool_}, Source{});
+    table->Lookup(BuiltinType::kTextureDimensions, utils::Vector{bool_, bool_},
+                  sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(Diagnostics().str(),
               R"(error: no matching call to textureDimensions(bool, bool)
 
 27 candidate functions:
-  textureDimensions(texture: texture_1d<T>, level: i32) -> i32  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_2d<T>, level: i32) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_2d_array<T>, level: i32) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_3d<T>, level: i32) -> vec3<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_cube<T>, level: i32) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_cube_array<T>, level: i32) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_depth_2d, level: i32) -> vec2<i32>
-  textureDimensions(texture: texture_depth_2d_array, level: i32) -> vec2<i32>
-  textureDimensions(texture: texture_depth_cube, level: i32) -> vec2<i32>
-  textureDimensions(texture: texture_depth_cube_array, level: i32) -> vec2<i32>
-  textureDimensions(texture: texture_1d<T>) -> i32  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_2d<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_2d_array<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_3d<T>) -> vec3<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_cube<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_cube_array<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_multisampled_2d<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_depth_2d) -> vec2<i32>
-  textureDimensions(texture: texture_depth_2d_array) -> vec2<i32>
-  textureDimensions(texture: texture_depth_cube) -> vec2<i32>
-  textureDimensions(texture: texture_depth_cube_array) -> vec2<i32>
-  textureDimensions(texture: texture_depth_multisampled_2d) -> vec2<i32>
-  textureDimensions(texture: texture_storage_1d<F, A>) -> i32  where: A is write
-  textureDimensions(texture: texture_storage_2d<F, A>) -> vec2<i32>  where: A is write
-  textureDimensions(texture: texture_storage_2d_array<F, A>) -> vec2<i32>  where: A is write
-  textureDimensions(texture: texture_storage_3d<F, A>) -> vec3<i32>  where: A is write
-  textureDimensions(texture: texture_external) -> vec2<i32>
+  textureDimensions(texture: texture_1d<T>, level: L) -> u32  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_2d<T>, level: L) -> vec2<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_2d_array<T>, level: L) -> vec2<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_3d<T>, level: L) -> vec3<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_cube<T>, level: L) -> vec2<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_cube_array<T>, level: L) -> vec2<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_depth_2d, level: L) -> vec2<u32>  where: L is i32 or u32
+  textureDimensions(texture: texture_depth_2d_array, level: L) -> vec2<u32>  where: L is i32 or u32
+  textureDimensions(texture: texture_depth_cube, level: L) -> vec2<u32>  where: L is i32 or u32
+  textureDimensions(texture: texture_depth_cube_array, level: L) -> vec2<u32>  where: L is i32 or u32
+  textureDimensions(texture: texture_1d<T>) -> u32  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_2d<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_2d_array<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_3d<T>) -> vec3<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_cube<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_cube_array<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_multisampled_2d<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_depth_2d) -> vec2<u32>
+  textureDimensions(texture: texture_depth_2d_array) -> vec2<u32>
+  textureDimensions(texture: texture_depth_cube) -> vec2<u32>
+  textureDimensions(texture: texture_depth_cube_array) -> vec2<u32>
+  textureDimensions(texture: texture_depth_multisampled_2d) -> vec2<u32>
+  textureDimensions(texture: texture_storage_1d<F, A>) -> u32  where: A is write
+  textureDimensions(texture: texture_storage_2d<F, A>) -> vec2<u32>  where: A is write
+  textureDimensions(texture: texture_storage_2d_array<F, A>) -> vec2<u32>  where: A is write
+  textureDimensions(texture: texture_storage_3d<F, A>) -> vec3<u32>  where: A is write
+  textureDimensions(texture: texture_external) -> vec2<u32>
 )");
 }
 
 TEST_F(IntrinsicTableTest, OverloadOrderByMatchingParameter) {
     auto* tex = create<sem::DepthTexture>(ast::TextureDimension::k2d);
     auto* bool_ = create<sem::Bool>();
-    table->Lookup(BuiltinType::kTextureDimensions, utils::Vector{tex, bool_}, Source{});
+    table->Lookup(BuiltinType::kTextureDimensions, utils::Vector{tex, bool_},
+                  sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(Diagnostics().str(),
               R"(error: no matching call to textureDimensions(texture_depth_2d, bool)
 
 27 candidate functions:
-  textureDimensions(texture: texture_depth_2d, level: i32) -> vec2<i32>
-  textureDimensions(texture: texture_depth_2d) -> vec2<i32>
-  textureDimensions(texture: texture_1d<T>, level: i32) -> i32  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_2d<T>, level: i32) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_2d_array<T>, level: i32) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_3d<T>, level: i32) -> vec3<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_cube<T>, level: i32) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_cube_array<T>, level: i32) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_depth_2d_array, level: i32) -> vec2<i32>
-  textureDimensions(texture: texture_depth_cube, level: i32) -> vec2<i32>
-  textureDimensions(texture: texture_depth_cube_array, level: i32) -> vec2<i32>
-  textureDimensions(texture: texture_1d<T>) -> i32  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_2d<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_2d_array<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_3d<T>) -> vec3<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_cube<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_cube_array<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_multisampled_2d<T>) -> vec2<i32>  where: T is f32, i32 or u32
-  textureDimensions(texture: texture_depth_2d_array) -> vec2<i32>
-  textureDimensions(texture: texture_depth_cube) -> vec2<i32>
-  textureDimensions(texture: texture_depth_cube_array) -> vec2<i32>
-  textureDimensions(texture: texture_depth_multisampled_2d) -> vec2<i32>
-  textureDimensions(texture: texture_storage_1d<F, A>) -> i32  where: A is write
-  textureDimensions(texture: texture_storage_2d<F, A>) -> vec2<i32>  where: A is write
-  textureDimensions(texture: texture_storage_2d_array<F, A>) -> vec2<i32>  where: A is write
-  textureDimensions(texture: texture_storage_3d<F, A>) -> vec3<i32>  where: A is write
-  textureDimensions(texture: texture_external) -> vec2<i32>
+  textureDimensions(texture: texture_depth_2d, level: L) -> vec2<u32>  where: L is i32 or u32
+  textureDimensions(texture: texture_1d<T>, level: L) -> u32  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_2d<T>, level: L) -> vec2<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_2d_array<T>, level: L) -> vec2<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_3d<T>, level: L) -> vec3<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_cube<T>, level: L) -> vec2<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_cube_array<T>, level: L) -> vec2<u32>  where: T is f32, i32 or u32, L is i32 or u32
+  textureDimensions(texture: texture_depth_2d_array, level: L) -> vec2<u32>  where: L is i32 or u32
+  textureDimensions(texture: texture_depth_cube, level: L) -> vec2<u32>  where: L is i32 or u32
+  textureDimensions(texture: texture_depth_cube_array, level: L) -> vec2<u32>  where: L is i32 or u32
+  textureDimensions(texture: texture_depth_2d) -> vec2<u32>
+  textureDimensions(texture: texture_1d<T>) -> u32  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_2d<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_2d_array<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_3d<T>) -> vec3<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_cube<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_cube_array<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_multisampled_2d<T>) -> vec2<u32>  where: T is f32, i32 or u32
+  textureDimensions(texture: texture_depth_2d_array) -> vec2<u32>
+  textureDimensions(texture: texture_depth_cube) -> vec2<u32>
+  textureDimensions(texture: texture_depth_cube_array) -> vec2<u32>
+  textureDimensions(texture: texture_depth_multisampled_2d) -> vec2<u32>
+  textureDimensions(texture: texture_storage_1d<F, A>) -> u32  where: A is write
+  textureDimensions(texture: texture_storage_2d<F, A>) -> vec2<u32>  where: A is write
+  textureDimensions(texture: texture_storage_2d_array<F, A>) -> vec2<u32>  where: A is write
+  textureDimensions(texture: texture_storage_3d<F, A>) -> vec3<u32>  where: A is write
+  textureDimensions(texture: texture_external) -> vec2<u32>
 )");
 }
 
@@ -583,15 +669,17 @@ TEST_F(IntrinsicTableTest, SameOverloadReturnsSameBuiltinPointer) {
     auto* f32 = create<sem::F32>();
     auto* vec2_f32 = create<sem::Vector>(create<sem::F32>(), 2u);
     auto* bool_ = create<sem::Bool>();
-    auto a = table->Lookup(BuiltinType::kSelect, utils::Vector{f32, f32, bool_}, Source{});
+    auto a = table->Lookup(BuiltinType::kSelect, utils::Vector{f32, f32, bool_},
+                           sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(a.sem, nullptr) << Diagnostics().str();
 
-    auto b = table->Lookup(BuiltinType::kSelect, utils::Vector{f32, f32, bool_}, Source{});
+    auto b = table->Lookup(BuiltinType::kSelect, utils::Vector{f32, f32, bool_},
+                           sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(b.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
 
-    auto c =
-        table->Lookup(BuiltinType::kSelect, utils::Vector{vec2_f32, vec2_f32, bool_}, Source{});
+    auto c = table->Lookup(BuiltinType::kSelect, utils::Vector{vec2_f32, vec2_f32, bool_},
+                           sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(c.sem, nullptr) << Diagnostics().str();
     ASSERT_EQ(Diagnostics().str(), "");
 
@@ -603,15 +691,16 @@ TEST_F(IntrinsicTableTest, SameOverloadReturnsSameBuiltinPointer) {
 TEST_F(IntrinsicTableTest, MatchUnaryOp) {
     auto* i32 = create<sem::I32>();
     auto* vec3_i32 = create<sem::Vector>(i32, 3u);
-    auto result = table->Lookup(ast::UnaryOp::kNegation, vec3_i32, Source{{12, 34}});
-    EXPECT_EQ(result.result, vec3_i32);
+    auto result = table->Lookup(ast::UnaryOp::kNegation, vec3_i32, sem::EvaluationStage::kConstant,
+                                Source{{12, 34}});
     EXPECT_EQ(result.result, vec3_i32);
     EXPECT_EQ(Diagnostics().str(), "");
 }
 
 TEST_F(IntrinsicTableTest, MismatchUnaryOp) {
     auto* bool_ = create<sem::Bool>();
-    auto result = table->Lookup(ast::UnaryOp::kNegation, bool_, Source{{12, 34}});
+    auto result = table->Lookup(ast::UnaryOp::kNegation, bool_, sem::EvaluationStage::kConstant,
+                                Source{{12, 34}});
     ASSERT_EQ(result.result, nullptr);
     EXPECT_EQ(Diagnostics().str(), R"(12:34 error: no matching overload for operator - (bool)
 
@@ -621,10 +710,28 @@ TEST_F(IntrinsicTableTest, MismatchUnaryOp) {
 )");
 }
 
+TEST_F(IntrinsicTableTest, MatchUnaryOp_Constant) {
+    auto* ai = create<sem::AbstractInt>();
+    auto result = table->Lookup(ast::UnaryOp::kNegation, ai, sem::EvaluationStage::kConstant,
+                                Source{{12, 34}});
+    EXPECT_EQ(result.result, ai);
+    EXPECT_EQ(Diagnostics().str(), "");
+}
+
+TEST_F(IntrinsicTableTest, MatchUnaryOp_Runtime) {
+    auto* ai = create<sem::AbstractInt>();
+    auto result = table->Lookup(ast::UnaryOp::kNegation, ai, sem::EvaluationStage::kRuntime,
+                                Source{{12, 34}});
+    EXPECT_NE(result.result, ai);
+    EXPECT_TRUE(result.result->Is<sem::I32>());
+    EXPECT_EQ(Diagnostics().str(), "");
+}
+
 TEST_F(IntrinsicTableTest, MatchBinaryOp) {
     auto* i32 = create<sem::I32>();
     auto* vec3_i32 = create<sem::Vector>(i32, 3u);
-    auto result = table->Lookup(ast::BinaryOp::kMultiply, i32, vec3_i32, Source{{12, 34}},
+    auto result = table->Lookup(ast::BinaryOp::kMultiply, i32, vec3_i32,
+                                sem::EvaluationStage::kConstant, Source{{12, 34}},
                                 /* is_compound */ false);
     EXPECT_EQ(result.result, vec3_i32);
     EXPECT_EQ(result.lhs, i32);
@@ -635,28 +742,30 @@ TEST_F(IntrinsicTableTest, MatchBinaryOp) {
 TEST_F(IntrinsicTableTest, MismatchBinaryOp) {
     auto* f32 = create<sem::F32>();
     auto* bool_ = create<sem::Bool>();
-    auto result = table->Lookup(ast::BinaryOp::kMultiply, f32, bool_, Source{{12, 34}},
+    auto result = table->Lookup(ast::BinaryOp::kMultiply, f32, bool_,
+                                sem::EvaluationStage::kConstant, Source{{12, 34}},
                                 /* is_compound */ false);
     ASSERT_EQ(result.result, nullptr);
     EXPECT_EQ(Diagnostics().str(), R"(12:34 error: no matching overload for operator * (f32, bool)
 
 9 candidate operators:
-  operator * (T, T) -> T  where: T is f32, i32, u32 or f16
-  operator * (vecN<T>, T) -> vecN<T>  where: T is f32, i32, u32 or f16
-  operator * (T, vecN<T>) -> vecN<T>  where: T is f32, i32, u32 or f16
-  operator * (T, matNxM<T>) -> matNxM<T>  where: T is f32 or f16
-  operator * (matNxM<T>, T) -> matNxM<T>  where: T is f32 or f16
-  operator * (vecN<T>, vecN<T>) -> vecN<T>  where: T is f32, i32, u32 or f16
-  operator * (matCxR<T>, vecC<T>) -> vecR<T>  where: T is f32 or f16
-  operator * (vecR<T>, matCxR<T>) -> vecC<T>  where: T is f32 or f16
-  operator * (matKxR<T>, matCxK<T>) -> matCxR<T>  where: T is f32 or f16
+  operator * (T, T) -> T  where: T is abstract-float, abstract-int, f32, i32, u32 or f16
+  operator * (vecN<T>, T) -> vecN<T>  where: T is abstract-float, abstract-int, f32, i32, u32 or f16
+  operator * (T, vecN<T>) -> vecN<T>  where: T is abstract-float, abstract-int, f32, i32, u32 or f16
+  operator * (T, matNxM<T>) -> matNxM<T>  where: T is abstract-float, f32 or f16
+  operator * (matNxM<T>, T) -> matNxM<T>  where: T is abstract-float, f32 or f16
+  operator * (vecN<T>, vecN<T>) -> vecN<T>  where: T is abstract-float, abstract-int, f32, i32, u32 or f16
+  operator * (matCxR<T>, vecC<T>) -> vecR<T>  where: T is abstract-float, f32 or f16
+  operator * (vecR<T>, matCxR<T>) -> vecC<T>  where: T is abstract-float, f32 or f16
+  operator * (matKxR<T>, matCxK<T>) -> matCxR<T>  where: T is abstract-float, f32 or f16
 )");
 }
 
 TEST_F(IntrinsicTableTest, MatchCompoundOp) {
     auto* i32 = create<sem::I32>();
     auto* vec3_i32 = create<sem::Vector>(i32, 3u);
-    auto result = table->Lookup(ast::BinaryOp::kMultiply, i32, vec3_i32, Source{{12, 34}},
+    auto result = table->Lookup(ast::BinaryOp::kMultiply, i32, vec3_i32,
+                                sem::EvaluationStage::kConstant, Source{{12, 34}},
                                 /* is_compound */ true);
     EXPECT_EQ(result.result, vec3_i32);
     EXPECT_EQ(result.lhs, i32);
@@ -667,32 +776,33 @@ TEST_F(IntrinsicTableTest, MatchCompoundOp) {
 TEST_F(IntrinsicTableTest, MismatchCompoundOp) {
     auto* f32 = create<sem::F32>();
     auto* bool_ = create<sem::Bool>();
-    auto result = table->Lookup(ast::BinaryOp::kMultiply, f32, bool_, Source{{12, 34}},
+    auto result = table->Lookup(ast::BinaryOp::kMultiply, f32, bool_,
+                                sem::EvaluationStage::kConstant, Source{{12, 34}},
                                 /* is_compound */ true);
     ASSERT_EQ(result.result, nullptr);
     EXPECT_EQ(Diagnostics().str(), R"(12:34 error: no matching overload for operator *= (f32, bool)
 
 9 candidate operators:
-  operator *= (T, T) -> T  where: T is f32, i32, u32 or f16
-  operator *= (vecN<T>, T) -> vecN<T>  where: T is f32, i32, u32 or f16
-  operator *= (T, vecN<T>) -> vecN<T>  where: T is f32, i32, u32 or f16
-  operator *= (T, matNxM<T>) -> matNxM<T>  where: T is f32 or f16
-  operator *= (matNxM<T>, T) -> matNxM<T>  where: T is f32 or f16
-  operator *= (vecN<T>, vecN<T>) -> vecN<T>  where: T is f32, i32, u32 or f16
-  operator *= (matCxR<T>, vecC<T>) -> vecR<T>  where: T is f32 or f16
-  operator *= (vecR<T>, matCxR<T>) -> vecC<T>  where: T is f32 or f16
-  operator *= (matKxR<T>, matCxK<T>) -> matCxR<T>  where: T is f32 or f16
+  operator *= (T, T) -> T  where: T is abstract-float, abstract-int, f32, i32, u32 or f16
+  operator *= (vecN<T>, T) -> vecN<T>  where: T is abstract-float, abstract-int, f32, i32, u32 or f16
+  operator *= (T, vecN<T>) -> vecN<T>  where: T is abstract-float, abstract-int, f32, i32, u32 or f16
+  operator *= (T, matNxM<T>) -> matNxM<T>  where: T is abstract-float, f32 or f16
+  operator *= (matNxM<T>, T) -> matNxM<T>  where: T is abstract-float, f32 or f16
+  operator *= (vecN<T>, vecN<T>) -> vecN<T>  where: T is abstract-float, abstract-int, f32, i32, u32 or f16
+  operator *= (matCxR<T>, vecC<T>) -> vecR<T>  where: T is abstract-float, f32 or f16
+  operator *= (vecR<T>, matCxR<T>) -> vecC<T>  where: T is abstract-float, f32 or f16
+  operator *= (matKxR<T>, matCxK<T>) -> matCxR<T>  where: T is abstract-float, f32 or f16
 )");
 }
 
-TEST_F(IntrinsicTableTest, MatchTypeConstructorImplicit) {
+TEST_F(IntrinsicTableTest, MatchTypeInitializerImplicit) {
     auto* i32 = create<sem::I32>();
     auto* vec3_i32 = create<sem::Vector>(i32, 3u);
-    auto result = table->Lookup(CtorConvIntrinsic::kVec3, nullptr, utils::Vector{i32, i32, i32},
-                                Source{{12, 34}});
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, nullptr, utils::Vector{i32, i32, i32},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
     ASSERT_NE(result.target, nullptr);
     EXPECT_EQ(result.target->ReturnType(), vec3_i32);
-    EXPECT_TRUE(result.target->Is<sem::TypeConstructor>());
+    EXPECT_TRUE(result.target->Is<sem::TypeInitializer>());
     ASSERT_EQ(result.target->Parameters().Length(), 3u);
     EXPECT_EQ(result.target->Parameters()[0]->Type(), i32);
     EXPECT_EQ(result.target->Parameters()[1]->Type(), i32);
@@ -700,14 +810,14 @@ TEST_F(IntrinsicTableTest, MatchTypeConstructorImplicit) {
     EXPECT_NE(result.const_eval_fn, nullptr);
 }
 
-TEST_F(IntrinsicTableTest, MatchTypeConstructorExplicit) {
+TEST_F(IntrinsicTableTest, MatchTypeInitializerExplicit) {
     auto* i32 = create<sem::I32>();
     auto* vec3_i32 = create<sem::Vector>(i32, 3u);
-    auto result = table->Lookup(CtorConvIntrinsic::kVec3, i32, utils::Vector{i32, i32, i32},
-                                Source{{12, 34}});
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, i32, utils::Vector{i32, i32, i32},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
     ASSERT_NE(result.target, nullptr);
     EXPECT_EQ(result.target->ReturnType(), vec3_i32);
-    EXPECT_TRUE(result.target->Is<sem::TypeConstructor>());
+    EXPECT_TRUE(result.target->Is<sem::TypeInitializer>());
     ASSERT_EQ(result.target->Parameters().Length(), 3u);
     EXPECT_EQ(result.target->Parameters()[0]->Type(), i32);
     EXPECT_EQ(result.target->Parameters()[1]->Type(), i32);
@@ -715,56 +825,119 @@ TEST_F(IntrinsicTableTest, MatchTypeConstructorExplicit) {
     EXPECT_NE(result.const_eval_fn, nullptr);
 }
 
-TEST_F(IntrinsicTableTest, MismatchTypeConstructorImplicit) {
+TEST_F(IntrinsicTableTest, MismatchTypeInitializerImplicit) {
     auto* i32 = create<sem::I32>();
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(CtorConvIntrinsic::kVec3, nullptr, utils::Vector{i32, f32, i32},
-                                Source{{12, 34}});
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, nullptr, utils::Vector{i32, f32, i32},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
     ASSERT_EQ(result.target, nullptr);
     EXPECT_EQ(Diagnostics().str(),
-              R"(12:34 error: no matching constructor for vec3(i32, f32, i32)
+              R"(12:34 error: no matching initializer for vec3(i32, f32, i32)
 
-6 candidate constructors:
+6 candidate initializers:
   vec3(x: T, y: T, z: T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(xy: vec2<T>, z: T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(x: T, yz: vec2<T>) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
-  vec3(vec3<T>) -> vec3<T>  where: T is f32, f16, i32, u32 or bool
-  vec3() -> vec3<T>  where: T is f32, f16, i32, u32 or bool
+  vec3(vec3<T>) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
+  vec3<T>() -> vec3<T>  where: T is f32, f16, i32, u32 or bool
 
 5 candidate conversions:
-  vec3(vec3<U>) -> vec3<f32>  where: T is f32, U is i32, f16, u32 or bool
-  vec3(vec3<U>) -> vec3<f16>  where: T is f16, U is f32, i32, u32 or bool
-  vec3(vec3<U>) -> vec3<i32>  where: T is i32, U is f32, f16, u32 or bool
-  vec3(vec3<U>) -> vec3<u32>  where: T is u32, U is f32, f16, i32 or bool
-  vec3(vec3<U>) -> vec3<bool>  where: T is bool, U is f32, f16, i32 or u32
+  vec3<T>(vec3<U>) -> vec3<f32>  where: T is f32, U is abstract-int, abstract-float, i32, f16, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<f16>  where: T is f16, U is abstract-int, abstract-float, f32, i32, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<i32>  where: T is i32, U is abstract-int, abstract-float, f32, f16, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<u32>  where: T is u32, U is abstract-int, abstract-float, f32, f16, i32 or bool
+  vec3<T>(vec3<U>) -> vec3<bool>  where: T is bool, U is abstract-int, abstract-float, f32, f16, i32 or u32
 )");
 }
 
-TEST_F(IntrinsicTableTest, MismatchTypeConstructorExplicit) {
+TEST_F(IntrinsicTableTest, MismatchTypeInitializerExplicit) {
     auto* i32 = create<sem::I32>();
     auto* f32 = create<sem::F32>();
-    auto result = table->Lookup(CtorConvIntrinsic::kVec3, i32, utils::Vector{i32, f32, i32},
-                                Source{{12, 34}});
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, i32, utils::Vector{i32, f32, i32},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
     ASSERT_EQ(result.target, nullptr);
     EXPECT_EQ(Diagnostics().str(),
-              R"(12:34 error: no matching constructor for vec3<i32>(i32, f32, i32)
+              R"(12:34 error: no matching initializer for vec3<i32>(i32, f32, i32)
 
-6 candidate constructors:
+6 candidate initializers:
   vec3(x: T, y: T, z: T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(x: T, yz: vec2<T>) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(xy: vec2<T>, z: T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
-  vec3(vec3<T>) -> vec3<T>  where: T is f32, f16, i32, u32 or bool
-  vec3() -> vec3<T>  where: T is f32, f16, i32, u32 or bool
+  vec3(vec3<T>) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
+  vec3<T>() -> vec3<T>  where: T is f32, f16, i32, u32 or bool
 
 5 candidate conversions:
-  vec3(vec3<U>) -> vec3<f32>  where: T is f32, U is i32, f16, u32 or bool
-  vec3(vec3<U>) -> vec3<f16>  where: T is f16, U is f32, i32, u32 or bool
-  vec3(vec3<U>) -> vec3<i32>  where: T is i32, U is f32, f16, u32 or bool
-  vec3(vec3<U>) -> vec3<u32>  where: T is u32, U is f32, f16, i32 or bool
-  vec3(vec3<U>) -> vec3<bool>  where: T is bool, U is f32, f16, i32 or u32
+  vec3<T>(vec3<U>) -> vec3<f32>  where: T is f32, U is abstract-int, abstract-float, i32, f16, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<f16>  where: T is f16, U is abstract-int, abstract-float, f32, i32, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<i32>  where: T is i32, U is abstract-int, abstract-float, f32, f16, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<u32>  where: T is u32, U is abstract-int, abstract-float, f32, f16, i32 or bool
+  vec3<T>(vec3<U>) -> vec3<bool>  where: T is bool, U is abstract-int, abstract-float, f32, f16, i32 or u32
 )");
+}
+
+TEST_F(IntrinsicTableTest, MatchTypeInitializerImplicitVecFromVecAbstract) {
+    auto* ai = create<sem::AbstractInt>();
+    auto* vec3_ai = create<sem::Vector>(ai, 3u);
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, nullptr, utils::Vector{vec3_ai},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
+    ASSERT_NE(result.target, nullptr);
+    EXPECT_EQ(result.target->ReturnType(), vec3_ai);
+    EXPECT_TRUE(result.target->Is<sem::TypeInitializer>());
+    ASSERT_EQ(result.target->Parameters().Length(), 1u);
+    EXPECT_EQ(result.target->Parameters()[0]->Type(), vec3_ai);
+    EXPECT_NE(result.const_eval_fn, nullptr);
+}
+
+TEST_F(IntrinsicTableTest, MatchTypeInitializerImplicitMatFromVec) {
+    auto* af = create<sem::AbstractFloat>();
+    auto* vec2_ai = create<sem::Vector>(create<sem::AbstractInt>(), 2u);
+    auto* vec2_af = create<sem::Vector>(af, 2u);
+    auto* mat2x2_af = create<sem::Matrix>(vec2_af, 2u);
+    auto result =
+        table->Lookup(InitConvIntrinsic::kMat2x2, nullptr, utils::Vector{vec2_ai, vec2_ai},
+                      sem::EvaluationStage::kConstant, Source{{12, 34}});
+    ASSERT_NE(result.target, nullptr);
+    EXPECT_TYPE(result.target->ReturnType(), mat2x2_af);
+    EXPECT_TRUE(result.target->Is<sem::TypeInitializer>());
+    ASSERT_EQ(result.target->Parameters().Length(), 2u);
+    EXPECT_TYPE(result.target->Parameters()[0]->Type(), vec2_af);
+    EXPECT_TYPE(result.target->Parameters()[1]->Type(), vec2_af);
+    EXPECT_NE(result.const_eval_fn, nullptr);
+}
+
+TEST_F(IntrinsicTableTest, MatchTypeInitializer_ConstantEval) {
+    auto* ai = create<sem::AbstractInt>();
+    auto* vec3_ai = create<sem::Vector>(ai, 3u);
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, nullptr, utils::Vector{ai, ai, ai},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
+    ASSERT_NE(result.target, nullptr);
+    EXPECT_EQ(result.target->Stage(), sem::EvaluationStage::kConstant);
+    EXPECT_EQ(result.target->ReturnType(), vec3_ai);
+    EXPECT_TRUE(result.target->Is<sem::TypeInitializer>());
+    ASSERT_EQ(result.target->Parameters().Length(), 3u);
+    EXPECT_EQ(result.target->Parameters()[0]->Type(), ai);
+    EXPECT_EQ(result.target->Parameters()[1]->Type(), ai);
+    EXPECT_EQ(result.target->Parameters()[2]->Type(), ai);
+    EXPECT_NE(result.const_eval_fn, nullptr);
+}
+
+TEST_F(IntrinsicTableTest, MatchTypeInitializer_RuntimeEval) {
+    auto* ai = create<sem::AbstractInt>();
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, nullptr, utils::Vector{ai, ai, ai},
+                                sem::EvaluationStage::kRuntime, Source{{12, 34}});
+    auto* i32 = create<sem::I32>();
+    auto* vec3_i32 = create<sem::Vector>(i32, 3u);
+    ASSERT_NE(result.target, nullptr);
+    EXPECT_EQ(result.target->Stage(), sem::EvaluationStage::kConstant);
+    EXPECT_EQ(result.target->ReturnType(), vec3_i32);
+    EXPECT_TRUE(result.target->Is<sem::TypeInitializer>());
+    ASSERT_EQ(result.target->Parameters().Length(), 3u);
+    EXPECT_EQ(result.target->Parameters()[0]->Type(), i32);
+    EXPECT_EQ(result.target->Parameters()[1]->Type(), i32);
+    EXPECT_EQ(result.target->Parameters()[2]->Type(), i32);
+    EXPECT_NE(result.const_eval_fn, nullptr);
 }
 
 TEST_F(IntrinsicTableTest, MatchTypeConversion) {
@@ -772,8 +945,8 @@ TEST_F(IntrinsicTableTest, MatchTypeConversion) {
     auto* vec3_i32 = create<sem::Vector>(i32, 3u);
     auto* f32 = create<sem::F32>();
     auto* vec3_f32 = create<sem::Vector>(f32, 3u);
-    auto result =
-        table->Lookup(CtorConvIntrinsic::kVec3, i32, utils::Vector{vec3_f32}, Source{{12, 34}});
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, i32, utils::Vector{vec3_f32},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
     ASSERT_NE(result.target, nullptr);
     EXPECT_EQ(result.target->ReturnType(), vec3_i32);
     EXPECT_TRUE(result.target->Is<sem::TypeConversion>());
@@ -782,36 +955,70 @@ TEST_F(IntrinsicTableTest, MatchTypeConversion) {
 }
 
 TEST_F(IntrinsicTableTest, MismatchTypeConversion) {
-    auto* arr = create<sem::Array>(create<sem::U32>(), 0u, 4u, 4u, 4u, 4u);
+    auto* arr = create<sem::Array>(create<sem::U32>(), sem::RuntimeArrayCount{}, 4u, 4u, 4u, 4u);
     auto* f32 = create<sem::F32>();
-    auto result =
-        table->Lookup(CtorConvIntrinsic::kVec3, f32, utils::Vector{arr}, Source{{12, 34}});
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, f32, utils::Vector{arr},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
     ASSERT_EQ(result.target, nullptr);
     EXPECT_EQ(Diagnostics().str(),
-              R"(12:34 error: no matching constructor for vec3<f32>(array<u32>)
+              R"(12:34 error: no matching initializer for vec3<f32>(array<u32>)
 
-6 candidate constructors:
-  vec3(vec3<T>) -> vec3<T>  where: T is f32, f16, i32, u32 or bool
+6 candidate initializers:
+  vec3(vec3<T>) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
-  vec3() -> vec3<T>  where: T is f32, f16, i32, u32 or bool
+  vec3<T>() -> vec3<T>  where: T is f32, f16, i32, u32 or bool
   vec3(xy: vec2<T>, z: T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(x: T, yz: vec2<T>) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
   vec3(x: T, y: T, z: T) -> vec3<T>  where: T is abstract-int, abstract-float, f32, f16, i32, u32 or bool
 
 5 candidate conversions:
-  vec3(vec3<U>) -> vec3<f32>  where: T is f32, U is i32, f16, u32 or bool
-  vec3(vec3<U>) -> vec3<f16>  where: T is f16, U is f32, i32, u32 or bool
-  vec3(vec3<U>) -> vec3<i32>  where: T is i32, U is f32, f16, u32 or bool
-  vec3(vec3<U>) -> vec3<u32>  where: T is u32, U is f32, f16, i32 or bool
-  vec3(vec3<U>) -> vec3<bool>  where: T is bool, U is f32, f16, i32 or u32
+  vec3<T>(vec3<U>) -> vec3<f32>  where: T is f32, U is abstract-int, abstract-float, i32, f16, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<f16>  where: T is f16, U is abstract-int, abstract-float, f32, i32, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<i32>  where: T is i32, U is abstract-int, abstract-float, f32, f16, u32 or bool
+  vec3<T>(vec3<U>) -> vec3<u32>  where: T is u32, U is abstract-int, abstract-float, f32, f16, i32 or bool
+  vec3<T>(vec3<U>) -> vec3<bool>  where: T is bool, U is abstract-int, abstract-float, f32, f16, i32 or u32
 )");
+}
+
+TEST_F(IntrinsicTableTest, MatchTypeConversion_ConstantEval) {
+    auto* ai = create<sem::AbstractInt>();
+    auto* af = create<sem::AbstractFloat>();
+    auto* vec3_ai = create<sem::Vector>(ai, 3u);
+    auto* f32 = create<sem::F32>();
+    auto* vec3_f32 = create<sem::Vector>(f32, 3u);
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, af, utils::Vector{vec3_ai},
+                                sem::EvaluationStage::kConstant, Source{{12, 34}});
+    ASSERT_NE(result.target, nullptr);
+    EXPECT_EQ(result.target->Stage(), sem::EvaluationStage::kConstant);
+    // NOTE: Conversions are explicit, so there's no way to have it return abstracts
+    EXPECT_EQ(result.target->ReturnType(), vec3_f32);
+    EXPECT_TRUE(result.target->Is<sem::TypeConversion>());
+    ASSERT_EQ(result.target->Parameters().Length(), 1u);
+    EXPECT_EQ(result.target->Parameters()[0]->Type(), vec3_ai);
+}
+
+TEST_F(IntrinsicTableTest, MatchTypeConversion_RuntimeEval) {
+    auto* ai = create<sem::AbstractInt>();
+    auto* af = create<sem::AbstractFloat>();
+    auto* vec3_ai = create<sem::Vector>(ai, 3u);
+    auto* vec3_f32 = create<sem::Vector>(create<sem::F32>(), 3u);
+    auto* vec3_i32 = create<sem::Vector>(create<sem::I32>(), 3u);
+    auto result = table->Lookup(InitConvIntrinsic::kVec3, af, utils::Vector{vec3_ai},
+                                sem::EvaluationStage::kRuntime, Source{{12, 34}});
+    ASSERT_NE(result.target, nullptr);
+    EXPECT_EQ(result.target->Stage(), sem::EvaluationStage::kConstant);
+    EXPECT_EQ(result.target->ReturnType(), vec3_f32);
+    EXPECT_TRUE(result.target->Is<sem::TypeConversion>());
+    ASSERT_EQ(result.target->Parameters().Length(), 1u);
+    EXPECT_EQ(result.target->Parameters()[0]->Type(), vec3_i32);
 }
 
 TEST_F(IntrinsicTableTest, Err257Arguments) {  // crbug.com/1323605
     auto* f32 = create<sem::F32>();
     utils::Vector<const sem::Type*, 0> arg_tys;
     arg_tys.Resize(257, f32);
-    auto result = table->Lookup(BuiltinType::kAbs, std::move(arg_tys), Source{});
+    auto result = table->Lookup(BuiltinType::kAbs, std::move(arg_tys),
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_EQ(result.sem, nullptr);
     ASSERT_THAT(Diagnostics().str(), HasSubstr("no matching call"));
 }
@@ -823,11 +1030,12 @@ TEST_F(IntrinsicTableTest, OverloadResolution) {
     // The first should win overload resolution.
     auto* ai = create<sem::AbstractInt>();
     auto* i32 = create<sem::I32>();
-    auto result = table->Lookup(CtorConvIntrinsic::kI32, nullptr, utils::Vector{ai}, Source{});
+    auto result = table->Lookup(InitConvIntrinsic::kI32, nullptr, utils::Vector{ai},
+                                sem::EvaluationStage::kConstant, Source{});
     ASSERT_NE(result.target, nullptr);
     EXPECT_EQ(result.target->ReturnType(), i32);
     EXPECT_EQ(result.target->Parameters().Length(), 1u);
-    EXPECT_EQ(result.target->Parameters()[0]->Type(), i32);
+    EXPECT_EQ(result.target->Parameters()[0]->Type(), ai);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -865,7 +1073,8 @@ struct IntrinsicTableAbstractBinaryTest : public ResolverTestWithParam<Case> {
 TEST_P(IntrinsicTableAbstractBinaryTest, MatchAdd) {
     auto* arg_lhs = GetParam().arg_lhs(*this);
     auto* arg_rhs = GetParam().arg_rhs(*this);
-    auto result = table->Lookup(ast::BinaryOp::kAdd, arg_lhs, arg_rhs, Source{{12, 34}},
+    auto result = table->Lookup(ast::BinaryOp::kAdd, arg_lhs, arg_rhs,
+                                sem::EvaluationStage::kConstant, Source{{12, 34}},
                                 /* is_compound */ false);
 
     bool matched = result.result != nullptr;
@@ -1048,7 +1257,7 @@ TEST_P(IntrinsicTableAbstractTernaryTest, MatchClamp) {
     auto* arg_b = GetParam().arg_b(*this);
     auto* arg_c = GetParam().arg_c(*this);
     auto builtin = table->Lookup(sem::BuiltinType::kClamp, utils::Vector{arg_a, arg_b, arg_c},
-                                 Source{{12, 34}});
+                                 sem::EvaluationStage::kConstant, Source{{12, 34}});
 
     bool matched = builtin.sem != nullptr;
     bool expected_match = GetParam().expected_match;
@@ -1279,8 +1488,8 @@ TEST_P(IntrinsicTableAbstractTernaryTest_NonConstEval, MatchMix) {
     auto* arg_a = GetParam().arg_a(*this);
     auto* arg_b = GetParam().arg_b(*this);
     auto* arg_c = GetParam().arg_c(*this);
-    auto builtin =
-        table->Lookup(sem::BuiltinType::kMix, utils::Vector{arg_a, arg_b, arg_c}, Source{{12, 34}});
+    auto builtin = table->Lookup(sem::BuiltinType::kMix, utils::Vector{arg_a, arg_b, arg_c},
+                                 sem::EvaluationStage::kConstant, Source{{12, 34}});
 
     bool matched = builtin.sem != nullptr;
     bool expected_match = GetParam().expected_match;

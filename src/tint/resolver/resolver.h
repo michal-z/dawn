@@ -69,7 +69,7 @@ class LoopStatement;
 class Statement;
 class StructMember;
 class SwitchStatement;
-class TypeConstructor;
+class TypeInitializer;
 class WhileStatement;
 }  // namespace tint::sem
 
@@ -112,45 +112,6 @@ class Resolver {
 
   private:
     Validator::ValidTypeStorageLayouts valid_type_storage_layouts_;
-
-    /// Structure holding semantic information about a block (i.e. scope), such as
-    /// parent block and variables declared in the block.
-    /// Used to validate variable scoping rules.
-    struct BlockInfo {
-        enum class Type { kGeneric, kLoop, kLoopContinuing, kSwitchCase };
-
-        BlockInfo(const ast::BlockStatement* block, Type type, BlockInfo* parent);
-        ~BlockInfo();
-
-        template <typename Pred>
-        BlockInfo* FindFirstParent(Pred&& pred) {
-            BlockInfo* curr = this;
-            while (curr && !pred(curr)) {
-                curr = curr->parent;
-            }
-            return curr;
-        }
-
-        BlockInfo* FindFirstParent(BlockInfo::Type ty) {
-            return FindFirstParent([ty](auto* block_info) { return block_info->type == ty; });
-        }
-
-        ast::BlockStatement const* const block;
-        const Type type;
-        BlockInfo* const parent;
-        std::vector<const ast::Variable*> decls;
-
-        // first_continue is set to the index of the first variable in decls
-        // declared after the first continue statement in a loop block, if any.
-        constexpr static size_t kNoContinue = size_t(~0);
-        size_t first_continue = kNoContinue;
-    };
-
-    // Structure holding information for a TypeDecl
-    struct TypeDeclInfo {
-        ast::TypeDecl const* const ast;
-        sem::Type* const sem;
-    };
 
     /// Resolves the program, without creating final the semantic nodes.
     /// @returns true on success, false on error
@@ -213,12 +174,24 @@ class Resolver {
     /// Materializes all the arguments in `args` to the parameter types of `target`.
     /// @returns true on success, false on failure.
     template <size_t N>
-    bool MaterializeArguments(utils::Vector<const sem::Expression*, N>& args,
-                              const sem::CallTarget* target);
+    bool MaybeMaterializeArguments(utils::Vector<const sem::Expression*, N>& args,
+                                   const sem::CallTarget* target);
 
     /// @returns true if an argument of an abstract numeric type, passed to a parameter of type
     /// `parameter_ty` should be materialized.
     bool ShouldMaterializeArgument(const sem::Type* parameter_ty) const;
+
+    /// Converts `c` to `target_ty`
+    /// @returns true on success, false on failure.
+    bool Convert(const sem::Constant*& c, const sem::Type* target_ty, const Source& source);
+
+    /// Transforms `args` to a vector of constants, and converts each constant to the call target's
+    /// parameter type.
+    /// @returns the vector of constants, `utils::Failure` on failure.
+    template <size_t N>
+    utils::Result<utils::Vector<const sem::Constant*, N>> ConvertArguments(
+        const utils::Vector<const sem::Expression*, N>& args,
+        const sem::CallTarget* target);
 
     /// @param ty the type that may hold abstract numeric types
     /// @param target_ty the target type for the expression (variable type, parameter type, etc).
@@ -235,8 +208,9 @@ class Resolver {
     sem::Statement* AssignmentStatement(const ast::AssignmentStatement*);
     sem::BlockStatement* BlockStatement(const ast::BlockStatement*);
     sem::Statement* BreakStatement(const ast::BreakStatement*);
+    sem::Statement* BreakIfStatement(const ast::BreakIfStatement*);
     sem::Statement* CallStatement(const ast::CallStatement*);
-    sem::CaseStatement* CaseStatement(const ast::CaseStatement*);
+    sem::CaseStatement* CaseStatement(const ast::CaseStatement*, const sem::Type*);
     sem::Statement* CompoundAssignmentStatement(const ast::CompoundAssignmentStatement*);
     sem::Statement* ContinueStatement(const ast::ContinueStatement*);
     sem::Statement* DiscardStatement(const ast::DiscardStatement*);
@@ -290,7 +264,7 @@ class Resolver {
     /// Resolves and validates the expression used as the count parameter of an array.
     /// @param count_expr the expression used as the second template parameter to an array<>.
     /// @returns the number of elements in the array.
-    utils::Result<uint32_t> ArrayCount(const ast::Expression* count_expr);
+    utils::Result<sem::ArrayCount> ArrayCount(const ast::Expression* count_expr);
 
     /// Resolves and validates the attributes on an array.
     /// @param attributes the attributes on the array type.
@@ -303,13 +277,17 @@ class Resolver {
 
     /// Builds and returns the semantic information for an array.
     /// @returns the semantic Array information, or nullptr if an error is raised.
-    /// @param source the source of the array declaration
+    /// @param el_source the source of the array element, or the array if the array does not have a
+    ///        locally-declared element AST node.
+    /// @param count_source the source of the array count, or the array if the array does not have a
+    ///        locally-declared element AST node.
     /// @param el_ty the Array element type
-    /// @param el_count the number of elements in the array. Zero means runtime-sized.
+    /// @param el_count the number of elements in the array.
     /// @param explicit_stride the explicit byte stride of the array. Zero means implicit stride.
-    sem::Array* Array(const Source& source,
+    sem::Array* Array(const Source& el_source,
+                      const Source& count_source,
                       const sem::Type* el_ty,
-                      uint32_t el_count,
+                      sem::ArrayCount el_count,
                       uint32_t explicit_stride);
 
     /// Builds and returns the semantic information for the alias `alias`.
@@ -371,20 +349,24 @@ class Resolver {
     /// @param index the index of the parameter
     sem::Parameter* Parameter(const ast::Parameter* param, uint32_t index);
 
-    /// Records the storage class usage for the given type, and any transient
+    /// @returns the location value for a `@location` attribute, validating the value's range and
+    /// type.
+    utils::Result<uint32_t> LocationAttribute(const ast::LocationAttribute* attr);
+
+    /// Records the address space usage for the given type, and any transient
     /// dependencies of the type. Validates that the type can be used for the
-    /// given storage class, erroring if it cannot.
-    /// @param sc the storage class to apply to the type and transitent types
-    /// @param ty the type to apply the storage class on
+    /// given address space, erroring if it cannot.
+    /// @param sc the address space to apply to the type and transitent types
+    /// @param ty the type to apply the address space on
     /// @param usage the Source of the root variable declaration that uses the
-    /// given type and storage class. Used for generating sensible error
+    /// given type and address space. Used for generating sensible error
     /// messages.
     /// @returns true on success, false on error
-    bool ApplyStorageClassUsageToType(ast::StorageClass sc, sem::Type* ty, const Source& usage);
+    bool ApplyAddressSpaceUsageToType(ast::AddressSpace sc, sem::Type* ty, const Source& usage);
 
-    /// @param storage_class the storage class
-    /// @returns the default access control for the given storage class
-    ast::Access DefaultAccessForStorageClass(ast::StorageClass storage_class);
+    /// @param address_space the address space
+    /// @returns the default access control for the given address space
+    ast::Access DefaultAccessForAddressSpace(ast::AddressSpace address_space);
 
     /// Allocate constant IDs for pipeline-overridable constants.
     /// @returns true on success, false on error
@@ -398,11 +380,9 @@ class Resolver {
     /// * Assigns `sem` to #current_statement_
     /// * Assigns `sem` to #current_compound_statement_ if `sem` derives from
     ///   sem::CompoundStatement.
-    /// * Assigns `sem` to #current_block_ if `sem` derives from
-    ///   sem::BlockStatement.
     /// * Then calls `callback`.
-    /// * Before returning #current_statement_, #current_compound_statement_, and
-    ///   #current_block_ are restored to their original values.
+    /// * Before returning #current_statement_ and #current_compound_statement_ are restored to
+    /// their original values.
     /// @returns `sem` if `callback` returns true, otherwise `nullptr`.
     template <typename SEM, typename F>
     SEM* StatementScope(const ast::Statement* ast, SEM* sem, F&& callback);
@@ -426,16 +406,25 @@ class Resolver {
     /// @returns true if the symbol is the name of a builtin function.
     bool IsBuiltin(Symbol) const;
 
-    // ArrayConstructorSig represents a unique array constructor signature.
+    // ArrayInitializerSig represents a unique array initializer signature.
     // It is a tuple of the array type, number of arguments provided and earliest evaluation stage.
-    using ArrayConstructorSig =
+    using ArrayInitializerSig =
         utils::UnorderedKeyWrapper<std::tuple<const sem::Array*, size_t, sem::EvaluationStage>>;
 
-    // StructConstructorSig represents a unique structure constructor signature.
+    // StructInitializerSig represents a unique structure initializer signature.
     // It is a tuple of the structure type, number of arguments provided and earliest evaluation
     // stage.
-    using StructConstructorSig =
+    using StructInitializerSig =
         utils::UnorderedKeyWrapper<std::tuple<const sem::Struct*, size_t, sem::EvaluationStage>>;
+
+    /// ExprEvalStageConstraint describes a constraint on when expressions can be evaluated.
+    struct ExprEvalStageConstraint {
+        /// The latest stage that the expression can be evaluated
+        sem::EvaluationStage stage = sem::EvaluationStage::kRuntime;
+        /// The 'thing' that is imposing the contraint. e.g. "var declaration"
+        /// If nullptr, then there is no constraint
+        const char* constraint = nullptr;
+    };
 
     ProgramBuilder* const builder_;
     diag::List& diagnostics_;
@@ -448,14 +437,14 @@ class Resolver {
     std::vector<sem::Function*> entry_points_;
     std::unordered_map<const sem::Type*, const Source&> atomic_composite_info_;
     utils::Bitset<0> marked_;
+    ExprEvalStageConstraint expr_eval_stage_constraint_;
     std::unordered_map<OverrideId, const sem::Variable*> override_ids_;
-    std::unordered_map<ArrayConstructorSig, sem::CallTarget*> array_ctors_;
-    std::unordered_map<StructConstructorSig, sem::CallTarget*> struct_ctors_;
-
+    std::unordered_map<ArrayInitializerSig, sem::CallTarget*> array_inits_;
+    std::unordered_map<StructInitializerSig, sem::CallTarget*> struct_inits_;
     sem::Function* current_function_ = nullptr;
     sem::Statement* current_statement_ = nullptr;
     sem::CompoundStatement* current_compound_statement_ = nullptr;
-    sem::BlockStatement* current_block_ = nullptr;
+    uint32_t current_scoping_depth_ = 0;
 };
 
 }  // namespace tint::resolver

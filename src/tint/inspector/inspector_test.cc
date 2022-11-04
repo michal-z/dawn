@@ -291,7 +291,7 @@ TEST_P(InspectorGetEntryPointComponentAndCompositionTest, Test) {
 
     auto* in_var = Param("in_var", tint_type(),
                          utils::Vector{
-                             Location(0u),
+                             Location(0_u),
                              Flat(),
                          });
     Func("foo", utils::Vector{in_var}, tint_type(),
@@ -302,7 +302,7 @@ TEST_P(InspectorGetEntryPointComponentAndCompositionTest, Test) {
              Stage(ast::PipelineStage::kFragment),
          },
          utils::Vector{
-             Location(0u),
+             Location(0_u),
          });
     Inspector& inspector = Build();
 
@@ -336,17 +336,17 @@ INSTANTIATE_TEST_SUITE_P(InspectorGetEntryPointTest,
 TEST_F(InspectorGetEntryPointTest, MultipleInOutVariables) {
     auto* in_var0 = Param("in_var0", ty.u32(),
                           utils::Vector{
-                              Location(0u),
+                              Location(0_u),
                               Flat(),
                           });
     auto* in_var1 = Param("in_var1", ty.u32(),
                           utils::Vector{
-                              Location(1u),
+                              Location(1_u),
                               Flat(),
                           });
     auto* in_var4 = Param("in_var4", ty.u32(),
                           utils::Vector{
-                              Location(4u),
+                              Location(4_u),
                               Flat(),
                           });
     Func("foo", utils::Vector{in_var0, in_var1, in_var4}, ty.u32(),
@@ -357,7 +357,7 @@ TEST_F(InspectorGetEntryPointTest, MultipleInOutVariables) {
              Stage(ast::PipelineStage::kFragment),
          },
          utils::Vector{
-             Location(0u),
+             Location(0_u),
          });
     Inspector& inspector = Build();
 
@@ -393,7 +393,7 @@ TEST_F(InspectorGetEntryPointTest, MultipleInOutVariables) {
 TEST_F(InspectorGetEntryPointTest, MultipleEntryPointsInOutVariables) {
     auto* in_var_foo = Param("in_var_foo", ty.u32(),
                              utils::Vector{
-                                 Location(0u),
+                                 Location(0_u),
                                  Flat(),
                              });
     Func("foo", utils::Vector{in_var_foo}, ty.u32(),
@@ -404,12 +404,12 @@ TEST_F(InspectorGetEntryPointTest, MultipleEntryPointsInOutVariables) {
              Stage(ast::PipelineStage::kFragment),
          },
          utils::Vector{
-             Location(0u),
+             Location(0_u),
          });
 
     auto* in_var_bar = Param("in_var_bar", ty.u32(),
                              utils::Vector{
-                                 Location(0u),
+                                 Location(0_u),
                                  Flat(),
                              });
     Func("bar", utils::Vector{in_var_bar}, ty.u32(),
@@ -420,7 +420,7 @@ TEST_F(InspectorGetEntryPointTest, MultipleEntryPointsInOutVariables) {
              Stage(ast::PipelineStage::kFragment),
          },
          utils::Vector{
-             Location(1u),
+             Location(1_u),
          });
 
     Inspector& inspector = Build();
@@ -464,7 +464,7 @@ TEST_F(InspectorGetEntryPointTest, BuiltInsNotStageVariables) {
                           });
     auto* in_var1 = Param("in_var1", ty.f32(),
                           utils::Vector{
-                              Location(0u),
+                              Location(0_u),
                           });
     Func("foo", utils::Vector{in_var0, in_var1}, ty.f32(),
          utils::Vector{
@@ -596,8 +596,8 @@ TEST_F(InspectorGetEntryPointTest, MixInOutVariablesAndStruct) {
          utils::Vector{
              Param("param_a", ty.Of(struct_a)),
              Param("param_b", ty.Of(struct_b)),
-             Param("param_c", ty.f32(), utils::Vector{Location(3u)}),
-             Param("param_d", ty.f32(), utils::Vector{Location(4u)}),
+             Param("param_c", ty.f32(), utils::Vector{Location(3_u)}),
+             Param("param_d", ty.f32(), utils::Vector{Location(4_u)}),
          },
          ty.Of(struct_a),
          utils::Vector{
@@ -647,7 +647,7 @@ TEST_F(InspectorGetEntryPointTest, MixInOutVariablesAndStruct) {
 }
 
 TEST_F(InspectorGetEntryPointTest, OverrideUnreferenced) {
-    Override("foo", ty.f32(), nullptr);
+    Override("foo", ty.f32());
     MakeEmptyBodyFunction("ep_func", utils::Vector{
                                          Stage(ast::PipelineStage::kCompute),
                                          WorkgroupSize(1_i),
@@ -662,7 +662,7 @@ TEST_F(InspectorGetEntryPointTest, OverrideUnreferenced) {
 }
 
 TEST_F(InspectorGetEntryPointTest, OverrideReferencedByEntryPoint) {
-    Override("foo", ty.f32(), nullptr);
+    Override("foo", ty.f32());
     MakePlainGlobalReferenceBodyFunction("ep_func", "foo", ty.f32(),
                                          utils::Vector{
                                              Stage(ast::PipelineStage::kCompute),
@@ -679,7 +679,7 @@ TEST_F(InspectorGetEntryPointTest, OverrideReferencedByEntryPoint) {
 }
 
 TEST_F(InspectorGetEntryPointTest, OverrideReferencedByCallee) {
-    Override("foo", ty.f32(), nullptr);
+    Override("foo", ty.f32());
     MakePlainGlobalReferenceBodyFunction("callee_func", "foo", ty.f32(), utils::Empty);
     MakeCallerBodyFunction("ep_func", utils::Vector{std::string("callee_func")},
                            utils::Vector{
@@ -697,14 +697,8 @@ TEST_F(InspectorGetEntryPointTest, OverrideReferencedByCallee) {
 }
 
 TEST_F(InspectorGetEntryPointTest, OverrideSomeReferenced) {
-    Override("foo", ty.f32(), nullptr,
-             utils::Vector{
-                 Id(1),
-             });
-    Override("bar", ty.f32(), nullptr,
-             utils::Vector{
-                 Id(2),
-             });
+    Override("foo", ty.f32(), Id(1_a));
+    Override("bar", ty.f32(), Id(2_a));
     MakePlainGlobalReferenceBodyFunction("callee_func", "foo", ty.f32(), utils::Empty);
     MakeCallerBodyFunction("ep_func", utils::Vector{std::string("callee_func")},
                            utils::Vector{
@@ -723,10 +717,10 @@ TEST_F(InspectorGetEntryPointTest, OverrideSomeReferenced) {
 }
 
 TEST_F(InspectorGetEntryPointTest, OverrideTypes) {
-    Override("bool_var", ty.bool_(), nullptr);
-    Override("float_var", ty.f32(), nullptr);
-    Override("u32_var", ty.u32(), nullptr);
-    Override("i32_var", ty.i32(), nullptr);
+    Override("bool_var", ty.bool_());
+    Override("float_var", ty.f32());
+    Override("u32_var", ty.u32());
+    Override("i32_var", ty.i32());
 
     MakePlainGlobalReferenceBodyFunction("bool_func", "bool_var", ty.bool_(), utils::Empty);
     MakePlainGlobalReferenceBodyFunction("float_func", "float_var", ty.f32(), utils::Empty);
@@ -775,7 +769,7 @@ TEST_F(InspectorGetEntryPointTest, OverrideInitialized) {
 }
 
 TEST_F(InspectorGetEntryPointTest, OverrideUninitialized) {
-    Override("foo", ty.f32(), nullptr);
+    Override("foo", ty.f32());
     MakePlainGlobalReferenceBodyFunction("ep_func", "foo", ty.f32(),
                                          utils::Vector{
                                              Stage(ast::PipelineStage::kCompute),
@@ -794,11 +788,8 @@ TEST_F(InspectorGetEntryPointTest, OverrideUninitialized) {
 }
 
 TEST_F(InspectorGetEntryPointTest, OverrideNumericIDSpecified) {
-    Override("foo_no_id", ty.f32(), nullptr);
-    Override("foo_id", ty.f32(), nullptr,
-             utils::Vector{
-                 Id(1234),
-             });
+    Override("foo_no_id", ty.f32());
+    Override("foo_id", ty.f32(), Id(1234_a));
 
     MakePlainGlobalReferenceBodyFunction("no_id_func", "foo_no_id", ty.f32(), utils::Empty);
     MakePlainGlobalReferenceBodyFunction("id_func", "foo_id", ty.f32(), utils::Empty);
@@ -861,6 +852,7 @@ TEST_F(InspectorGetEntryPointTest, BuiltinNotReferenced) {
     EXPECT_FALSE(result[0].front_facing_used);
     EXPECT_FALSE(result[0].sample_index_used);
     EXPECT_FALSE(result[0].num_workgroups_used);
+    EXPECT_FALSE(result[0].frag_depth_used);
 }
 
 TEST_F(InspectorGetEntryPointTest, InputSampleMaskSimpleReferenced) {
@@ -1143,9 +1135,52 @@ TEST_F(InspectorGetEntryPointTest, NumWorkgroupsStructReferenced) {
     EXPECT_TRUE(result[0].num_workgroups_used);
 }
 
+TEST_F(InspectorGetEntryPointTest, FragDepthSimpleReferenced) {
+    Func("ep_func", {}, ty.f32(),
+         utils::Vector{
+             Return(Expr(0_f)),
+         },
+         utils::Vector{
+             Stage(ast::PipelineStage::kFragment),
+         },
+         utils::Vector{
+             Builtin(ast::BuiltinValue::kFragDepth),
+         });
+
+    Inspector& inspector = Build();
+
+    auto result = inspector.GetEntryPoints();
+
+    ASSERT_EQ(1u, result.size());
+    EXPECT_TRUE(result[0].frag_depth_used);
+}
+
+TEST_F(InspectorGetEntryPointTest, FragDepthStructReferenced) {
+    Structure("out_struct", utils::Vector{
+                                Member("inner_frag_depth", ty.f32(),
+                                       utils::Vector{Builtin(ast::BuiltinValue::kFragDepth)}),
+                            });
+
+    Func("ep_func", utils::Empty, ty.type_name("out_struct"),
+         utils::Vector{
+             Decl(Var("out_var", ty.type_name("out_struct"))),
+             Return("out_var"),
+         },
+         utils::Vector{
+             Stage(ast::PipelineStage::kFragment),
+         });
+
+    Inspector& inspector = Build();
+
+    auto result = inspector.GetEntryPoints();
+
+    ASSERT_EQ(1u, result.size());
+    EXPECT_TRUE(result[0].frag_depth_used);
+}
+
 TEST_F(InspectorGetEntryPointTest, ImplicitInterpolate) {
     Structure("in_struct", utils::Vector{
-                               Member("struct_inner", ty.f32(), utils::Vector{Location(0)}),
+                               Member("struct_inner", ty.f32(), utils::Vector{Location(0_a)}),
                            });
 
     Func("ep_func",
@@ -1176,7 +1211,7 @@ TEST_P(InspectorGetEntryPointInterpolateTest, Test) {
         "in_struct",
         utils::Vector{
             Member("struct_inner", ty.f32(),
-                   utils::Vector{Interpolate(params.in_type, params.in_sampling), Location(0)}),
+                   utils::Vector{Interpolate(params.in_type, params.in_sampling), Location(0_a)}),
         });
 
     Func("ep_func",
@@ -1215,7 +1250,7 @@ INSTANTIATE_TEST_SUITE_P(
             ast::InterpolationType::kPerspective, ast::InterpolationSampling::kSample,
             InterpolationType::kPerspective, InterpolationSampling::kSample},
         InspectorGetEntryPointInterpolateTestParams{
-            ast::InterpolationType::kPerspective, ast::InterpolationSampling::kNone,
+            ast::InterpolationType::kPerspective, ast::InterpolationSampling::kUndefined,
             InterpolationType::kPerspective, InterpolationSampling::kCenter},
         InspectorGetEntryPointInterpolateTestParams{
             ast::InterpolationType::kLinear, ast::InterpolationSampling::kCenter,
@@ -1227,30 +1262,24 @@ INSTANTIATE_TEST_SUITE_P(
             ast::InterpolationType::kLinear, ast::InterpolationSampling::kSample,
             InterpolationType::kLinear, InterpolationSampling::kSample},
         InspectorGetEntryPointInterpolateTestParams{
-            ast::InterpolationType::kLinear, ast::InterpolationSampling::kNone,
+            ast::InterpolationType::kLinear, ast::InterpolationSampling::kUndefined,
             InterpolationType::kLinear, InterpolationSampling::kCenter},
         InspectorGetEntryPointInterpolateTestParams{
-            ast::InterpolationType::kFlat, ast::InterpolationSampling::kNone,
+            ast::InterpolationType::kFlat, ast::InterpolationSampling::kUndefined,
             InterpolationType::kFlat, InterpolationSampling::kNone}));
 
 TEST_F(InspectorGetOverrideDefaultValuesTest, Bool) {
-    Override("foo", ty.bool_(), nullptr,
-             utils::Vector{
-                 Id(1),
-             });
-    Override("bar", ty.bool_(), Expr(true),
-             utils::Vector{
-                 Id(20),
-             });
-    Override("baz", ty.bool_(), Expr(false),
-             utils::Vector{
-                 Id(300),
-             });
+    GlobalConst("C", Expr(true));
+    Override("a", ty.bool_(), Id(1_a));
+    Override("b", ty.bool_(), Expr(true), Id(20_a));
+    Override("c", Expr(false), Id(300_a));
+    Override("d", Or(true, false), Id(400_a));
+    Override("e", Expr("C"), Id(500_a));
 
     Inspector& inspector = Build();
 
     auto result = inspector.GetOverrideDefaultValues();
-    ASSERT_EQ(3u, result.size());
+    ASSERT_EQ(5u, result.size());
 
     ASSERT_TRUE(result.find(OverrideId{1}) != result.end());
     EXPECT_TRUE(result[OverrideId{1}].IsNull());
@@ -1262,22 +1291,29 @@ TEST_F(InspectorGetOverrideDefaultValuesTest, Bool) {
     ASSERT_TRUE(result.find(OverrideId{300}) != result.end());
     EXPECT_TRUE(result[OverrideId{300}].IsBool());
     EXPECT_FALSE(result[OverrideId{300}].AsBool());
+
+    ASSERT_TRUE(result.find(OverrideId{400}) != result.end());
+    EXPECT_TRUE(result[OverrideId{400}].IsBool());
+    EXPECT_TRUE(result[OverrideId{400}].AsBool());
+
+    ASSERT_TRUE(result.find(OverrideId{500}) != result.end());
+    EXPECT_TRUE(result[OverrideId{500}].IsBool());
+    EXPECT_TRUE(result[OverrideId{500}].AsBool());
 }
 
 TEST_F(InspectorGetOverrideDefaultValuesTest, U32) {
-    Override("foo", ty.u32(), nullptr,
-             utils::Vector{
-                 Id(1),
-             });
-    Override("bar", ty.u32(), Expr(42_u),
-             utils::Vector{
-                 Id(20),
-             });
+    GlobalConst("C", Expr(100_u));
+    Override("a", ty.u32(), Id(1_a));
+    Override("b", ty.u32(), Expr(42_u), Id(20_a));
+    Override("c", ty.u32(), Expr(42_a), Id(30_a));
+    Override("d", ty.u32(), Add(42_a, 10_a), Id(40_a));
+    Override("e", Add(42_a, 10_u), Id(50_a));
+    Override("f", Expr("C"), Id(60_a));
 
     Inspector& inspector = Build();
 
     auto result = inspector.GetOverrideDefaultValues();
-    ASSERT_EQ(2u, result.size());
+    ASSERT_EQ(6u, result.size());
 
     ASSERT_TRUE(result.find(OverrideId{1}) != result.end());
     EXPECT_TRUE(result[OverrideId{1}].IsNull());
@@ -1285,26 +1321,37 @@ TEST_F(InspectorGetOverrideDefaultValuesTest, U32) {
     ASSERT_TRUE(result.find(OverrideId{20}) != result.end());
     EXPECT_TRUE(result[OverrideId{20}].IsU32());
     EXPECT_EQ(42u, result[OverrideId{20}].AsU32());
+
+    ASSERT_TRUE(result.find(OverrideId{30}) != result.end());
+    EXPECT_TRUE(result[OverrideId{30}].IsU32());
+    EXPECT_EQ(42u, result[OverrideId{30}].AsU32());
+
+    ASSERT_TRUE(result.find(OverrideId{40}) != result.end());
+    EXPECT_TRUE(result[OverrideId{40}].IsU32());
+    EXPECT_EQ(52u, result[OverrideId{40}].AsU32());
+
+    ASSERT_TRUE(result.find(OverrideId{50}) != result.end());
+    EXPECT_TRUE(result[OverrideId{50}].IsU32());
+    EXPECT_EQ(52u, result[OverrideId{50}].AsU32());
+
+    ASSERT_TRUE(result.find(OverrideId{60}) != result.end());
+    EXPECT_TRUE(result[OverrideId{60}].IsU32());
+    EXPECT_EQ(100u, result[OverrideId{60}].AsU32());
 }
 
 TEST_F(InspectorGetOverrideDefaultValuesTest, I32) {
-    Override("foo", ty.i32(), nullptr,
-             utils::Vector{
-                 Id(1),
-             });
-    Override("bar", ty.i32(), Expr(-42_i),
-             utils::Vector{
-                 Id(20),
-             });
-    Override("baz", ty.i32(), Expr(42_i),
-             utils::Vector{
-                 Id(300),
-             });
+    GlobalConst("C", Expr(100_a));
+    Override("a", ty.i32(), Id(1_a));
+    Override("b", ty.i32(), Expr(-42_i), Id(20_a));
+    Override("c", ty.i32(), Expr(42_i), Id(300_a));
+    Override("d", Expr(42_a), Id(400_a));
+    Override("e", Add(42_a, 7_a), Id(500_a));
+    Override("f", Expr("C"), Id(6000_a));
 
     Inspector& inspector = Build();
 
     auto result = inspector.GetOverrideDefaultValues();
-    ASSERT_EQ(3u, result.size());
+    ASSERT_EQ(6u, result.size());
 
     ASSERT_TRUE(result.find(OverrideId{1}) != result.end());
     EXPECT_TRUE(result[OverrideId{1}].IsNull());
@@ -1316,30 +1363,32 @@ TEST_F(InspectorGetOverrideDefaultValuesTest, I32) {
     ASSERT_TRUE(result.find(OverrideId{300}) != result.end());
     EXPECT_TRUE(result[OverrideId{300}].IsI32());
     EXPECT_EQ(42, result[OverrideId{300}].AsI32());
+
+    ASSERT_TRUE(result.find(OverrideId{400}) != result.end());
+    EXPECT_TRUE(result[OverrideId{400}].IsI32());
+    EXPECT_EQ(42, result[OverrideId{400}].AsI32());
+
+    ASSERT_TRUE(result.find(OverrideId{500}) != result.end());
+    EXPECT_TRUE(result[OverrideId{500}].IsI32());
+    EXPECT_EQ(49, result[OverrideId{500}].AsI32());
+
+    ASSERT_TRUE(result.find(OverrideId{6000}) != result.end());
+    EXPECT_TRUE(result[OverrideId{6000}].IsI32());
+    EXPECT_EQ(100, result[OverrideId{6000}].AsI32());
 }
 
 TEST_F(InspectorGetOverrideDefaultValuesTest, Float) {
-    Override("foo", ty.f32(), nullptr,
-             utils::Vector{
-                 Id(1),
-             });
-    Override("bar", ty.f32(), Expr(0_f),
-             utils::Vector{
-                 Id(20),
-             });
-    Override("baz", ty.f32(), Expr(-10_f),
-             utils::Vector{
-                 Id(300),
-             });
-    Override("x", ty.f32(), Expr(15_f),
-             utils::Vector{
-                 Id(4000),
-             });
+    Override("a", ty.f32(), Id(1_a));
+    Override("b", ty.f32(), Expr(0_f), Id(20_a));
+    Override("c", ty.f32(), Expr(-10_f), Id(300_a));
+    Override("d", Expr(15_f), Id(4000_a));
+    Override("3", Expr(42.0_a), Id(5000_a));
+    Override("e", ty.f32(), Mul(15_f, 10_a), Id(6000_a));
 
     Inspector& inspector = Build();
 
     auto result = inspector.GetOverrideDefaultValues();
-    ASSERT_EQ(4u, result.size());
+    ASSERT_EQ(6u, result.size());
 
     ASSERT_TRUE(result.find(OverrideId{1}) != result.end());
     EXPECT_TRUE(result[OverrideId{1}].IsNull());
@@ -1355,24 +1404,23 @@ TEST_F(InspectorGetOverrideDefaultValuesTest, Float) {
     ASSERT_TRUE(result.find(OverrideId{4000}) != result.end());
     EXPECT_TRUE(result[OverrideId{4000}].IsFloat());
     EXPECT_FLOAT_EQ(15.0f, result[OverrideId{4000}].AsFloat());
+
+    ASSERT_TRUE(result.find(OverrideId{5000}) != result.end());
+    EXPECT_TRUE(result[OverrideId{5000}].IsFloat());
+    EXPECT_FLOAT_EQ(42.0f, result[OverrideId{5000}].AsFloat());
+
+    ASSERT_TRUE(result.find(OverrideId{6000}) != result.end());
+    EXPECT_TRUE(result[OverrideId{6000}].IsFloat());
+    EXPECT_FLOAT_EQ(150.0f, result[OverrideId{6000}].AsFloat());
 }
 
 TEST_F(InspectorGetConstantNameToIdMapTest, WithAndWithoutIds) {
-    Override("v1", ty.f32(), nullptr,
-             utils::Vector{
-                 Id(1),
-             });
-    Override("v20", ty.f32(), nullptr,
-             utils::Vector{
-                 Id(20),
-             });
-    Override("v300", ty.f32(), nullptr,
-             utils::Vector{
-                 Id(300),
-             });
-    auto* a = Override("a", ty.f32(), nullptr);
-    auto* b = Override("b", ty.f32(), nullptr);
-    auto* c = Override("c", ty.f32(), nullptr);
+    Override("v1", ty.f32(), Id(1_a));
+    Override("v20", ty.f32(), Id(20_a));
+    Override("v300", ty.f32(), Id(300_a));
+    auto* a = Override("a", ty.f32());
+    auto* b = Override("b", ty.f32());
+    auto* c = Override("c", ty.f32());
 
     Inspector& inspector = Build();
 
@@ -1416,9 +1464,9 @@ TEST_F(InspectorGetStorageSizeTest, Simple_NonStruct) {
     AddStorageBuffer("rosb_var", ty.i32(), ast::Access::kRead, 1, 1);
     Func("ep_func", utils::Empty, ty.void_(),
          utils::Vector{
-             Decl(Let("ub", nullptr, Expr("ub_var"))),
-             Decl(Let("sb", nullptr, Expr("sb_var"))),
-             Decl(Let("rosb", nullptr, Expr("rosb_var"))),
+             Decl(Let("ub", Expr("ub_var"))),
+             Decl(Let("sb", Expr("sb_var"))),
+             Decl(Let("rosb", Expr("rosb_var"))),
          },
          utils::Vector{
              Stage(ast::PipelineStage::kCompute),
@@ -1474,7 +1522,7 @@ TEST_F(InspectorGetStorageSizeTest, NonStructVec3) {
     AddUniformBuffer("ub_var", ty.vec3<f32>(), 0, 0);
     Func("ep_func", utils::Empty, ty.void_(),
          utils::Vector{
-             Decl(Let("ub", nullptr, Expr("ub_var"))),
+             Decl(Let("ub", Expr("ub_var"))),
          },
          utils::Vector{
              Stage(ast::PipelineStage::kCompute),
@@ -1493,7 +1541,7 @@ TEST_F(InspectorGetStorageSizeTest, StructVec3) {
     AddUniformBuffer("ub_var", ty.Of(ub_struct_type), 0, 0);
     Func("ep_func", utils::Empty, ty.void_(),
          utils::Vector{
-             Decl(Let("ub", nullptr, Expr("ub_var"))),
+             Decl(Let("ub", Expr("ub_var"))),
          },
          utils::Vector{
              Stage(ast::PipelineStage::kCompute),
@@ -1570,7 +1618,7 @@ TEST_F(InspectorGetResourceBindingsTest, Simple) {
 
     auto* st_type = MakeStorageTextureTypes(ast::TextureDimension::k2d, ast::TexelFormat::kR32Uint);
     AddStorageTexture("st_var", st_type, 4, 0);
-    MakeStorageTextureBodyFunction("st_func", "st_var", ty.vec2<i32>(), utils::Empty);
+    MakeStorageTextureBodyFunction("st_func", "st_var", ty.vec2<u32>(), utils::Empty);
 
     MakeCallerBodyFunction("ep_func",
                            utils::Vector{
@@ -1865,7 +1913,7 @@ TEST_F(InspectorGetUniformBufferResourceBindingsTest, ContainingArray) {
         "foo_type",
         utils::Vector{
             Member("0i32", ty.i32()),
-            Member("b", ty.array(ty.u32(), 4_u, /*stride*/ 16), utils::Vector{MemberAlign(16)}),
+            Member("b", ty.array(ty.u32(), 4_u, /*stride*/ 16), utils::Vector{MemberAlign(16_i)}),
         });
 
     AddUniformBuffer("foo_ub", ty.Of(foo_struct_type), 0, 0);
@@ -2709,48 +2757,6 @@ TEST_F(InspectorGetMultisampledArrayTextureResourceBindingsTest, Empty) {
     EXPECT_EQ(0u, result.size());
 }
 
-TEST_P(InspectorGetMultisampledArrayTextureResourceBindingsTestWithParam, DISABLED_textureSample) {
-    auto* multisampled_texture_type =
-        ty.multisampled_texture(GetParam().type_dim, GetBaseType(GetParam().sampled_kind));
-    AddResource("foo_texture", multisampled_texture_type, 0, 0);
-    AddSampler("foo_sampler", 0, 1);
-    auto* coord_type = GetCoordsType(GetParam().type_dim, ty.f32());
-    AddGlobalVariable("foo_coords", coord_type);
-    AddGlobalVariable("foo_array_index", ty.i32());
-
-    MakeSamplerReferenceBodyFunction("ep", "foo_texture", "foo_sampler", "foo_coords",
-                                     "foo_array_index", GetBaseType(GetParam().sampled_kind),
-                                     utils::Vector{
-                                         Stage(ast::PipelineStage::kFragment),
-                                     });
-
-    Inspector& inspector = Build();
-
-    auto result = inspector.GetMultisampledTextureResourceBindings("ep");
-    ASSERT_FALSE(inspector.has_error()) << inspector.error();
-    ASSERT_EQ(1u, result.size());
-
-    EXPECT_EQ(ResourceBinding::ResourceType::kMultisampledTexture, result[0].resource_type);
-    EXPECT_EQ(0u, result[0].bind_group);
-    EXPECT_EQ(0u, result[0].binding);
-    EXPECT_EQ(GetParam().inspector_dim, result[0].dim);
-    EXPECT_EQ(GetParam().sampled_kind, result[0].sampled_kind);
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    InspectorGetMultisampledArrayTextureResourceBindingsTest,
-    InspectorGetMultisampledArrayTextureResourceBindingsTestWithParam,
-    testing::Values(
-        GetMultisampledTextureTestParams{ast::TextureDimension::k2dArray,
-                                         inspector::ResourceBinding::TextureDimension::k2dArray,
-                                         inspector::ResourceBinding::SampledKind::kFloat},
-        GetMultisampledTextureTestParams{ast::TextureDimension::k2dArray,
-                                         inspector::ResourceBinding::TextureDimension::k2dArray,
-                                         inspector::ResourceBinding::SampledKind::kSInt},
-        GetMultisampledTextureTestParams{ast::TextureDimension::k2dArray,
-                                         inspector::ResourceBinding::TextureDimension::k2dArray,
-                                         inspector::ResourceBinding::SampledKind::kUInt}));
-
 TEST_F(InspectorGetStorageTextureResourceBindingsTest, Empty) {
     MakeEmptyBodyFunction("ep", utils::Vector{
                                     Stage(ast::PipelineStage::kFragment),
@@ -2783,14 +2789,14 @@ TEST_P(InspectorGetStorageTextureResourceBindingsTestWithParam, Simple) {
     const ast::Type* dim_type = nullptr;
     switch (dim) {
         case ast::TextureDimension::k1d:
-            dim_type = ty.i32();
+            dim_type = ty.u32();
             break;
         case ast::TextureDimension::k2d:
         case ast::TextureDimension::k2dArray:
-            dim_type = ty.vec2<i32>();
+            dim_type = ty.vec2<u32>();
             break;
         case ast::TextureDimension::k3d:
-            dim_type = ty.vec3<i32>();
+            dim_type = ty.vec3<u32>();
             break;
         default:
             break;
@@ -2971,7 +2977,7 @@ fn main() {
     auto result = inspector.GetSamplerTextureUses("main");
     ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-    ASSERT_EQ(0u, result.size());
+    ASSERT_EQ(0u, result.Length());
 }
 
 TEST_F(InspectorGetSamplerTextureUsesTest, Simple) {
@@ -2989,7 +2995,7 @@ fn main(@location(0) fragUV: vec2<f32>,
     auto result = inspector.GetSamplerTextureUses("main");
     ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-    ASSERT_EQ(1u, result.size());
+    ASSERT_EQ(1u, result.Length());
 
     EXPECT_EQ(0u, result[0].sampler_binding_point.group);
     EXPECT_EQ(1u, result[0].sampler_binding_point.binding);
@@ -3053,7 +3059,7 @@ fn main(@location(0) fragUV: vec2<f32>,
     auto result = inspector.GetSamplerTextureUses("main");
     ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-    ASSERT_EQ(1u, result.size());
+    ASSERT_EQ(1u, result.Length());
 
     EXPECT_EQ(0u, result[0].sampler_binding_point.group);
     EXPECT_EQ(1u, result[0].sampler_binding_point.binding);
@@ -3080,7 +3086,7 @@ fn main(@location(0) fragUV: vec2<f32>,
     auto result = inspector.GetSamplerTextureUses("main");
     ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-    ASSERT_EQ(1u, result.size());
+    ASSERT_EQ(1u, result.Length());
 
     EXPECT_EQ(0u, result[0].sampler_binding_point.group);
     EXPECT_EQ(1u, result[0].sampler_binding_point.binding);
@@ -3107,7 +3113,7 @@ fn main(@location(0) fragUV: vec2<f32>,
     auto result = inspector.GetSamplerTextureUses("main");
     ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-    ASSERT_EQ(1u, result.size());
+    ASSERT_EQ(1u, result.Length());
 
     EXPECT_EQ(0u, result[0].sampler_binding_point.group);
     EXPECT_EQ(1u, result[0].sampler_binding_point.binding);
@@ -3134,7 +3140,7 @@ fn main(@location(0) fragUV: vec2<f32>,
     auto result = inspector.GetSamplerTextureUses("main");
     ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-    ASSERT_EQ(1u, result.size());
+    ASSERT_EQ(1u, result.Length());
 
     EXPECT_EQ(0u, result[0].sampler_binding_point.group);
     EXPECT_EQ(1u, result[0].sampler_binding_point.binding);
@@ -3188,7 +3194,7 @@ fn direct(@location(0) fragUV: vec2<f32>,
         auto result = inspector.GetSamplerTextureUses("via_call");
         ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-        ASSERT_EQ(1u, result.size());
+        ASSERT_EQ(1u, result.Length());
 
         EXPECT_EQ(0u, result[0].sampler_binding_point.group);
         EXPECT_EQ(1u, result[0].sampler_binding_point.binding);
@@ -3200,7 +3206,7 @@ fn direct(@location(0) fragUV: vec2<f32>,
         auto result = inspector.GetSamplerTextureUses("via_ptr");
         ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-        ASSERT_EQ(1u, result.size());
+        ASSERT_EQ(1u, result.Length());
 
         EXPECT_EQ(0u, result[0].sampler_binding_point.group);
         EXPECT_EQ(1u, result[0].sampler_binding_point.binding);
@@ -3212,7 +3218,7 @@ fn direct(@location(0) fragUV: vec2<f32>,
         auto result = inspector.GetSamplerTextureUses("direct");
         ASSERT_FALSE(inspector.has_error()) << inspector.error();
 
-        ASSERT_EQ(1u, result.size());
+        ASSERT_EQ(1u, result.Length());
 
         EXPECT_EQ(0u, result[0].sampler_binding_point.group);
         EXPECT_EQ(1u, result[0].sampler_binding_point.binding);
@@ -3292,11 +3298,9 @@ TEST_F(InspectorGetWorkgroupStorageSizeTest, StructAlignment) {
     // of its last member, rounded up to the alignment of its largest member. So
     // here the struct is expected to occupy 1024 bytes of workgroup storage.
     const auto* wg_struct_type = MakeStructTypeFromMembers(
-        "WgStruct",
-        utils::Vector{
-            MakeStructMember(0, ty.f32(),
-                             utils::Vector{create<ast::StructMemberAlignAttribute>(1024u)}),
-        });
+        "WgStruct", utils::Vector{
+                        MakeStructMember(0, ty.f32(), utils::Vector{MemberAlign(1024_i)}),
+                    });
 
     AddWorkgroupStorage("wg_struct_var", ty.Of(wg_struct_type));
     MakeStructVariableReferenceBodyFunction("wg_struct_func", "wg_struct_var",

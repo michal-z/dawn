@@ -116,8 +116,9 @@ if (DAWN_SUPPORTS_GLFW_FOR_WINDOWING)
     set(BUILD_SAMPLES ON)
 endif()
 
-option_if_not_defined(DAWN_ENABLE_MSAN "Enable memory sanitizer" OFF)
 option_if_not_defined(DAWN_ENABLE_ASAN "Enable address sanitizer" OFF)
+option_if_not_defined(DAWN_ENABLE_TSAN "Enable thread sanitizer" OFF)
+option_if_not_defined(DAWN_ENABLE_MSAN "Enable memory sanitizer" OFF)
 option_if_not_defined(DAWN_ENABLE_UBSAN "Enable undefined behaviour sanitizer" OFF)
 
 option_if_not_defined(DAWN_ENABLE_D3D12 "Enable compilation of the D3D12 backend" ${ENABLE_D3D12})
@@ -155,6 +156,8 @@ option_if_not_defined(TINT_BUILD_HLSL_WRITER "Build the HLSL output writer" ${DA
 option_if_not_defined(TINT_BUILD_MSL_WRITER "Build the MSL output writer" ${DAWN_ENABLE_METAL})
 option_if_not_defined(TINT_BUILD_SPV_WRITER "Build the SPIR-V output writer" ${DAWN_ENABLE_VULKAN})
 option_if_not_defined(TINT_BUILD_WGSL_WRITER "Build the WGSL output writer" ON)
+
+option_if_not_defined(TINT_BUILD_IR "Build the IR" ON)
 
 option_if_not_defined(TINT_BUILD_FUZZERS "Build fuzzers" OFF)
 option_if_not_defined(TINT_BUILD_SPIRV_TOOLS_FUZZER "Build SPIRV-Tools fuzzer" OFF)
@@ -276,6 +279,7 @@ message(STATUS "Dawn build Swiftshader: ${DAWN_ENABLE_SWIFTSHADER}")
 message(STATUS "Dawn build PIC: ${DAWN_ENABLE_PIC}")
 
 message(STATUS "Dawn build with ASAN: ${DAWN_ENABLE_ASAN}")
+message(STATUS "Dawn build with TSAN: ${DAWN_ENABLE_TSAN}")
 message(STATUS "Dawn build with MSAN: ${DAWN_ENABLE_MSAN}")
 message(STATUS "Dawn build with UBSAN: ${DAWN_ENABLE_UBSAN}")
 
@@ -289,6 +293,7 @@ message(STATUS "Tint build HLSL writer: ${TINT_BUILD_HLSL_WRITER}")
 message(STATUS "Tint build MSL writer: ${TINT_BUILD_MSL_WRITER}")
 message(STATUS "Tint build SPIR-V writer: ${TINT_BUILD_SPV_WRITER}")
 message(STATUS "Tint build WGSL writer: ${TINT_BUILD_WGSL_WRITER}")
+message(STATUS "Tint build IR: ${TINT_BUILD_IR}")
 message(STATUS "Tint build fuzzers: ${TINT_BUILD_FUZZERS}")
 message(STATUS "Tint build SPIRV-Tools fuzzer: ${TINT_BUILD_SPIRV_TOOLS_FUZZER}")
 message(STATUS "Tint build AST fuzzer: ${TINT_BUILD_AST_FUZZER}")
@@ -315,21 +320,32 @@ function(common_compile_options TARGET)
     target_compile_options(${TARGET} PRIVATE
       -fno-exceptions
       -fno-rtti
-      -fvisibility-inlines-hidden
     )
 
     if (${DAWN_ENABLE_MSAN})
-      target_compile_options(${TARGET} PRIVATE -fsanitize=memory)
-      target_link_options(${TARGET} PRIVATE -fsanitize=memory)
+      target_compile_options(${TARGET} PUBLIC -fsanitize=memory)
+      target_link_options(${TARGET} PUBLIC -fsanitize=memory)
     elseif (${DAWN_ENABLE_ASAN})
-      target_compile_options(${TARGET} PRIVATE -fsanitize=address)
-      target_link_options(${TARGET} PRIVATE -fsanitize=address)
+      target_compile_options(${TARGET} PUBLIC -fsanitize=address)
+      target_link_options(${TARGET} PUBLIC -fsanitize=address)
+    elseif (${DAWN_ENABLE_TSAN})
+      target_compile_options(${TARGET} PUBLIC -fsanitize=thread)
+      target_link_options(${TARGET} PUBLIC -fsanitize=thread)
     elseif (${DAWN_ENABLE_UBSAN})
-      target_compile_options(${TARGET} PRIVATE -fsanitize=undefined)
-      target_link_options(${TARGET} PRIVATE -fsanitize=undefined)
+      target_compile_options(${TARGET} PUBLIC -fsanitize=undefined)
+      target_link_options(${TARGET} PUBLIC -fsanitize=undefined)
     endif()
   endif(COMPILER_IS_LIKE_GNU)
+
+  if(MSVC)
+      target_compile_options(${TARGET} PUBLIC /utf-8)
+  endif()
 endfunction()
+
+if (${DAWN_ENABLE_TSAN})
+  add_compile_options(-stdlib=libc++)
+  add_link_options(-stdlib=libc++)
+endif()
 
 ################################################################################
 # Dawn's public and internal "configs"
@@ -485,6 +501,7 @@ function(tint_core_compile_options TARGET)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_MSL_WRITER=$<BOOL:${TINT_BUILD_MSL_WRITER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_SPV_WRITER=$<BOOL:${TINT_BUILD_SPV_WRITER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_WGSL_WRITER=$<BOOL:${TINT_BUILD_WGSL_WRITER}>)
+  target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_IR=$<BOOL:${TINT_BUILD_IR}>)
 
   common_compile_options(${TARGET})
 

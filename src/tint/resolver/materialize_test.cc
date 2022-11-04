@@ -118,7 +118,9 @@ class MaterializeTest : public resolver::ResolverTestWithParam<CASE> {
                 }
             },
             [&](const sem::Array* a) {
-                for (uint32_t i = 0; i < a->Count(); i++) {
+                auto count = a->ConstantCount();
+                ASSERT_NE(count, 0u);
+                for (uint32_t i = 0; i < count; i++) {
                     auto* el = value->Index(i);
                     ASSERT_NE(el, nullptr);
                     EXPECT_TYPE(el->Type(), a->ElemType());
@@ -255,9 +257,9 @@ struct Data {
     std::string target_element_type_name;
     builder::ast_type_func_ptr target_ast_ty;
     builder::sem_type_func_ptr target_sem_ty;
-    builder::ast_expr_func_ptr target_expr;
+    builder::ast_expr_from_double_func_ptr target_expr;
     std::string abstract_type_name;
-    builder::ast_expr_func_ptr abstract_expr;
+    builder::ast_expr_from_double_func_ptr abstract_expr;
     std::variant<AInt, AFloat> materialized_value;
     double literal_value;
 };
@@ -268,13 +270,13 @@ Data Types(MATERIALIZED_TYPE materialized_value, double literal_value) {
     using AbstractDataType = builder::DataType<ABSTRACT_TYPE>;
     using TargetElementDataType = builder::DataType<typename TargetDataType::ElementType>;
     return {
-        TargetDataType::Name(),         // target_type_name
-        TargetElementDataType::Name(),  // target_element_type_name
-        TargetDataType::AST,            // target_ast_ty
-        TargetDataType::Sem,            // target_sem_ty
-        TargetDataType::Expr,           // target_expr
-        AbstractDataType::Name(),       // abstract_type_name
-        AbstractDataType::Expr,         // abstract_expr
+        TargetDataType::Name(),            // target_type_name
+        TargetElementDataType::Name(),     // target_element_type_name
+        TargetDataType::AST,               // target_ast_ty
+        TargetDataType::Sem,               // target_sem_ty
+        TargetDataType::ExprFromDouble,    // target_expr
+        AbstractDataType::Name(),          // abstract_type_name
+        AbstractDataType::ExprFromDouble,  // abstract_expr
         materialized_value,
         literal_value,
     };
@@ -286,13 +288,13 @@ Data Types() {
     using AbstractDataType = builder::DataType<ABSTRACT_TYPE>;
     using TargetElementDataType = builder::DataType<typename TargetDataType::ElementType>;
     return {
-        TargetDataType::Name(),         // target_type_name
-        TargetElementDataType::Name(),  // target_element_type_name
-        TargetDataType::AST,            // target_ast_ty
-        TargetDataType::Sem,            // target_sem_ty
-        TargetDataType::Expr,           // target_expr
-        AbstractDataType::Name(),       // abstract_type_name
-        AbstractDataType::Expr,         // abstract_expr
+        TargetDataType::Name(),            // target_type_name
+        TargetElementDataType::Name(),     // target_element_type_name
+        TargetDataType::AST,               // target_ast_ty
+        TargetDataType::Sem,               // target_sem_ty
+        TargetDataType::ExprFromDouble,    // target_expr
+        AbstractDataType::Name(),          // abstract_type_name
+        AbstractDataType::ExprFromDouble,  // abstract_expr
         0_a,
         0.0,
     };
@@ -328,7 +330,7 @@ TEST_P(MaterializeAbstractNumericToConcreteType, Test) {
             WrapInFunction(Decl(Let("a", target_ty(), abstract_expr)));
             break;
         case Method::kAssign:
-            WrapInFunction(Decl(Var("a", target_ty(), nullptr)), Assign("a", abstract_expr));
+            WrapInFunction(Decl(Var("a", target_ty())), Assign("a", abstract_expr));
             break;
         case Method::kPhonyAssign:
             WrapInFunction(Assign(Phony(), abstract_expr));
@@ -354,26 +356,30 @@ TEST_P(MaterializeAbstractNumericToConcreteType, Test) {
             WrapInFunction(Add(target_expr(), abstract_expr));
             break;
         case Method::kSwitchCond:
-            WrapInFunction(Switch(abstract_expr,                                         //
-                                  Case(target_expr()->As<ast::IntLiteralExpression>()),  //
-                                  DefaultCase()));
+            WrapInFunction(
+                Switch(abstract_expr,                                                       //
+                       Case(CaseSelector(target_expr()->As<ast::IntLiteralExpression>())),  //
+                       DefaultCase()));
             break;
         case Method::kSwitchCase:
-            WrapInFunction(Switch(target_expr(),                                         //
-                                  Case(abstract_expr->As<ast::IntLiteralExpression>()),  //
-                                  DefaultCase()));
+            WrapInFunction(
+                Switch(target_expr(),                                                       //
+                       Case(CaseSelector(abstract_expr->As<ast::IntLiteralExpression>())),  //
+                       DefaultCase()));
             break;
         case Method::kSwitchCondWithAbstractCase:
-            WrapInFunction(Switch(abstract_expr,                                         //
-                                  Case(Expr(123_a)),                                     //
-                                  Case(target_expr()->As<ast::IntLiteralExpression>()),  //
-                                  DefaultCase()));
+            WrapInFunction(
+                Switch(abstract_expr,                                                       //
+                       Case(CaseSelector(123_a)),                                           //
+                       Case(CaseSelector(target_expr()->As<ast::IntLiteralExpression>())),  //
+                       DefaultCase()));
             break;
         case Method::kSwitchCaseWithAbstractCase:
-            WrapInFunction(Switch(target_expr(),                                         //
-                                  Case(Expr(123_a)),                                     //
-                                  Case(abstract_expr->As<ast::IntLiteralExpression>()),  //
-                                  DefaultCase()));
+            WrapInFunction(
+                Switch(target_expr(),                                                       //
+                       Case(CaseSelector(123_a)),                                           //
+                       Case(CaseSelector(abstract_expr->As<ast::IntLiteralExpression>())),  //
+                       DefaultCase()));
             break;
         case Method::kWorkgroupSize:
             Func("f", utils::Empty, ty.void_(), utils::Empty,
@@ -381,7 +387,7 @@ TEST_P(MaterializeAbstractNumericToConcreteType, Test) {
                                Stage(ast::PipelineStage::kCompute)});
             break;
         case Method::kRuntimeIndex:
-            auto* runtime_index = Var("runtime_index", nullptr, Expr(1_i));
+            auto* runtime_index = Var("runtime_index", Expr(1_i));
             WrapInFunction(runtime_index, IndexAccessor(abstract_expr, runtime_index));
             break;
     }
@@ -464,9 +470,10 @@ constexpr Method kSwitchMethods[] = {
 
 /// Methods that do not materialize
 constexpr Method kNoMaterializeMethods[] = {
-    Method::kPhonyAssign,
-    // TODO(crbug.com/tint/1504): Enable once we have abstract overloads of builtins / binary
-    // ops: Method::kBuiltinArg, Method::kBinaryOp,
+    Method::kPhonyAssign,  //
+    Method::kBinaryOp,
+    // TODO(crbug.com/tint/1504): Enable once "min" supports const evaluation
+    // Method::kBuiltinArg,
 };
 INSTANTIATE_TEST_SUITE_P(
     MaterializeScalar,
@@ -792,6 +799,9 @@ enum class Method {
 
     // abstract_expr[runtime-index]
     kRuntimeIndex,
+
+    // _tint_materialize()
+    kTintMaterializeBuiltin,
 };
 
 static std::ostream& operator<<(std::ostream& o, Method m) {
@@ -816,6 +826,8 @@ static std::ostream& operator<<(std::ostream& o, Method m) {
             return o << "index";
         case Method::kRuntimeIndex:
             return o << "runtime-index";
+        case Method::kTintMaterializeBuiltin:
+            return o << "_tint_materialize";
     }
     return o << "<unknown>";
 }
@@ -825,7 +837,7 @@ struct Data {
     std::string expected_element_type_name;
     builder::sem_type_func_ptr expected_sem_ty;
     std::string abstract_type_name;
-    builder::ast_expr_func_ptr abstract_expr;
+    builder::ast_expr_from_double_func_ptr abstract_expr;
     std::variant<AInt, AFloat> materialized_value;
     double literal_value;
 };
@@ -836,11 +848,11 @@ Data Types(MATERIALIZED_TYPE materialized_value, double literal_value) {
     using AbstractDataType = builder::DataType<ABSTRACT_TYPE>;
     using TargetElementDataType = builder::DataType<typename ExpectedDataType::ElementType>;
     return {
-        ExpectedDataType::Name(),       // expected_type_name
-        TargetElementDataType::Name(),  // expected_element_type_name
-        ExpectedDataType::Sem,          // expected_sem_ty
-        AbstractDataType::Name(),       // abstract_type_name
-        AbstractDataType::Expr,         // abstract_expr
+        ExpectedDataType::Name(),          // expected_type_name
+        TargetElementDataType::Name(),     // expected_element_type_name
+        ExpectedDataType::Sem,             // expected_sem_ty
+        AbstractDataType::Name(),          // abstract_type_name
+        AbstractDataType::ExprFromDouble,  // abstract_expr
         materialized_value,
         literal_value,
     };
@@ -870,42 +882,58 @@ TEST_P(MaterializeAbstractNumericToDefaultType, Test) {
         return expr;
     };
     switch (method) {
-        case Method::kVar:
-            WrapInFunction(Decl(Var("a", nullptr, abstract_expr())));
+        case Method::kVar: {
+            WrapInFunction(Decl(Var("a", abstract_expr())));
             break;
-        case Method::kLet:
-            WrapInFunction(Decl(Let("a", nullptr, abstract_expr())));
+        }
+        case Method::kLet: {
+            WrapInFunction(Decl(Let("a", abstract_expr())));
             break;
-        case Method::kBuiltinArg:
+        }
+        case Method::kBuiltinArg: {
             WrapInFunction(CallStmt(Call("min", abstract_expr(), abstract_expr())));
             break;
-        case Method::kBitcastF32Arg:
+        }
+        case Method::kBitcastF32Arg: {
             WrapInFunction(Bitcast<f32>(abstract_expr()));
             break;
-        case Method::kBitcastVec3F32Arg:
+        }
+        case Method::kBitcastVec3F32Arg: {
             WrapInFunction(Bitcast(ty.vec3<f32>(), abstract_expr()));
             break;
-        case Method::kArrayLength:
+        }
+        case Method::kArrayLength: {
             WrapInFunction(Construct(ty.array(ty.i32(), abstract_expr())));
             break;
-        case Method::kSwitch:
-            WrapInFunction(Switch(abstract_expr(),
-                                  Case(abstract_expr()->As<ast::IntLiteralExpression>()),
-                                  DefaultCase()));
+        }
+        case Method::kSwitch: {
+            WrapInFunction(
+                Switch(abstract_expr(),
+                       Case(CaseSelector(abstract_expr()->As<ast::IntLiteralExpression>())),
+                       DefaultCase()));
             break;
-        case Method::kWorkgroupSize:
+        }
+        case Method::kWorkgroupSize: {
             Func(
                 "f", utils::Empty, ty.void_(), utils::Empty,
                 utils::Vector{WorkgroupSize(abstract_expr()), Stage(ast::PipelineStage::kCompute)});
             break;
-        case Method::kIndex:
-            GlobalVar("arr", ty.array<i32, 4>(), ast::StorageClass::kPrivate);
+        }
+        case Method::kIndex: {
+            GlobalVar("arr", ty.array<i32, 4>(), ast::AddressSpace::kPrivate);
             WrapInFunction(IndexAccessor("arr", abstract_expr()));
             break;
-        case Method::kRuntimeIndex:
-            auto* runtime_index = Var("runtime_index", nullptr, Expr(1_i));
+        }
+        case Method::kRuntimeIndex: {
+            auto* runtime_index = Var("runtime_index", Expr(1_i));
             WrapInFunction(runtime_index, IndexAccessor(abstract_expr(), runtime_index));
             break;
+        }
+        case Method::kTintMaterializeBuiltin: {
+            auto* call = Call(sem::str(sem::BuiltinType::kTintMaterialize), abstract_expr());
+            WrapInFunction(Decl(Const("c", call)));
+            break;
+        }
     }
 
     switch (expectation) {
@@ -951,32 +979,28 @@ constexpr Method kScalarMethods[] = {
     Method::kVar,
     Method::kBuiltinArg,
     Method::kBitcastF32Arg,
-};
-
-/// Methods that support abstract-integer materialization
-/// Note: Doesn't contain kWorkgroupSize or kArrayLength as they have tighter constraints on the
-///       range of allowed integer values.
-constexpr Method kAIntMethods[] = {
-    Method::kSwitch,
-    Method::kIndex,
+    Method::kTintMaterializeBuiltin,
 };
 
 /// Methods that support vector materialization
 constexpr Method kVectorMethods[] = {
-    Method::kLet,          Method::kVar, Method::kBuiltinArg, Method::kBitcastVec3F32Arg,
-    Method::kRuntimeIndex,
+    Method::kLet,          Method::kVar,
+    Method::kBuiltinArg,   Method::kBitcastVec3F32Arg,
+    Method::kRuntimeIndex, Method::kTintMaterializeBuiltin,
 };
 
 /// Methods that support matrix materialization
 constexpr Method kMatrixMethods[] = {
     Method::kLet,
     Method::kVar,
+    Method::kTintMaterializeBuiltin,
 };
 
 /// Methods that support array materialization
 constexpr Method kArrayMethods[] = {
     Method::kLet,
     Method::kVar,
+    Method::kTintMaterializeBuiltin,
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1038,11 +1062,36 @@ INSTANTIATE_TEST_SUITE_P(
             Types<f32M, AFloatM>(AFloat(-kSubnormalF32), -kSubnormalF32),                       //
         })));
 
+INSTANTIATE_TEST_SUITE_P(MaterializeAInt,
+                         MaterializeAbstractNumericToDefaultType,
+                         testing::Combine(testing::Values(Expectation::kMaterialize),
+                                          testing::Values(Method::kWorkgroupSize,
+                                                          Method::kArrayLength),
+                                          testing::ValuesIn(std::vector<Data>{
+                                              Types<i32, AInt>(1_a, 1.0),          //
+                                              Types<i32, AInt>(10_a, 10.0),        //
+                                              Types<i32, AInt>(100_a, 100.0),      //
+                                              Types<i32, AInt>(1000_a, 1000.0),    //
+                                              Types<i32, AInt>(10000_a, 10000.0),  //
+                                              Types<i32, AInt>(65535_a, 65535.0),  //
+                                          })));
+
+INSTANTIATE_TEST_SUITE_P(MaterializeAIntIndex,
+                         MaterializeAbstractNumericToDefaultType,
+                         testing::Combine(testing::Values(Expectation::kMaterialize),
+                                          testing::Values(Method::kIndex),
+                                          testing::ValuesIn(std::vector<Data>{
+                                              Types<i32, AInt>(0_a, 0.0),  //
+                                              Types<i32, AInt>(1_a, 1.0),  //
+                                              Types<i32, AInt>(2_a, 2.0),  //
+                                              Types<i32, AInt>(3_a, 3.0),  //
+                                          })));
+
 INSTANTIATE_TEST_SUITE_P(
-    MaterializeAInt,
+    MaterializeAIntSwitch,
     MaterializeAbstractNumericToDefaultType,
     testing::Combine(testing::Values(Expectation::kMaterialize),
-                     testing::ValuesIn(kAIntMethods),
+                     testing::Values(Method::kSwitch),
                      testing::ValuesIn(std::vector<Data>{
                          Types<i32, AInt>(0_a, 0.0),                              //
                          Types<i32, AInt>(10_a, 10.0),                            //
@@ -1132,7 +1181,10 @@ INSTANTIATE_TEST_SUITE_P(
     AIntValueCannotBeRepresented,
     MaterializeAbstractNumericToDefaultType,
     testing::Combine(testing::Values(Expectation::kValueCannotBeRepresented),
-                     testing::ValuesIn(kAIntMethods),
+                     testing::Values(Method::kWorkgroupSize,
+                                     Method::kArrayLength,
+                                     Method::kSwitch,
+                                     Method::kIndex),
                      testing::ValuesIn(std::vector<Data>{
                          Types<i32, AInt>(0_a, static_cast<double>(i32::kHighestValue) + 1),  //
                          Types<i32, AInt>(0_a, static_cast<double>(i32::kLowestValue) - 1),   //
@@ -1163,7 +1215,7 @@ namespace materialize_abstract_numeric_to_unrelated_type {
 
 using MaterializeAbstractNumericToUnrelatedType = resolver::ResolverTest;
 
-TEST_F(MaterializeAbstractNumericToUnrelatedType, AIntToStructVarCtor) {
+TEST_F(MaterializeAbstractNumericToUnrelatedType, AIntToStructVarInit) {
     Structure("S", utils::Vector{Member("a", ty.i32())});
     WrapInFunction(Decl(Var("v", ty.type_name("S"), Expr(Source{{12, 34}}, 1_a))));
     EXPECT_FALSE(r()->Resolve());
@@ -1172,7 +1224,7 @@ TEST_F(MaterializeAbstractNumericToUnrelatedType, AIntToStructVarCtor) {
         testing::HasSubstr("error: cannot convert value of type 'abstract-int' to type 'S'"));
 }
 
-TEST_F(MaterializeAbstractNumericToUnrelatedType, AIntToStructLetCtor) {
+TEST_F(MaterializeAbstractNumericToUnrelatedType, AIntToStructLetInit) {
     Structure("S", utils::Vector{Member("a", ty.i32())});
     WrapInFunction(Decl(Let("v", ty.type_name("S"), Expr(Source{{12, 34}}, 1_a))));
     EXPECT_FALSE(r()->Resolve());

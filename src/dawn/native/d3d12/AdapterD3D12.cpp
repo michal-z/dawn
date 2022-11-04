@@ -131,21 +131,23 @@ bool Adapter::AreTimestampQueriesSupported() const {
 MaybeError Adapter::InitializeSupportedFeaturesImpl() {
     if (AreTimestampQueriesSupported()) {
         mSupportedFeatures.EnableFeature(Feature::TimestampQuery);
+        mSupportedFeatures.EnableFeature(Feature::TimestampQueryInsidePasses);
     }
     mSupportedFeatures.EnableFeature(Feature::TextureCompressionBC);
     mSupportedFeatures.EnableFeature(Feature::PipelineStatisticsQuery);
     mSupportedFeatures.EnableFeature(Feature::MultiPlanarFormats);
     mSupportedFeatures.EnableFeature(Feature::Depth32FloatStencil8);
     mSupportedFeatures.EnableFeature(Feature::IndirectFirstInstance);
+    mSupportedFeatures.EnableFeature(Feature::RG11B10UfloatRenderable);
+    mSupportedFeatures.EnableFeature(Feature::DepthClipControl);
 
-    if (GetBackend()->GetFunctions()->IsDXCAvailable()) {
-        uint64_t dxcVersion = 0;
-        DAWN_TRY_ASSIGN(dxcVersion, GetBackend()->GetDXCompilerVersion());
-        constexpr uint64_t kLeastMajorVersionForDP4a = 1;
-        constexpr uint64_t kLeastMinorVersionForDP4a = 4;
-        if (mDeviceInfo.supportsDP4a &&
-            dxcVersion >= MakeDXCVersion(kLeastMajorVersionForDP4a, kLeastMinorVersionForDP4a)) {
+    // Both Dp4a and ShaderF16 features require DXC version being 1.4 or higher
+    if (GetBackend()->IsDXCAvailable(1, 4)) {
+        if (mDeviceInfo.supportsDP4a) {
             mSupportedFeatures.EnableFeature(Feature::ChromiumExperimentalDp4a);
+        }
+        if (mDeviceInfo.supportsShaderF16) {
+            mSupportedFeatures.EnableFeature(Feature::ShaderF16);
         }
     }
 
@@ -300,6 +302,8 @@ MaybeError Adapter::InitializeSupportedLimitsImpl(CombinedLimits* limits) {
     limits->v1.maxUniformBufferBindingSize = D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16;
     // D3D12 has no documented limit on the size of a storage buffer binding.
     limits->v1.maxStorageBufferBindingSize = 4294967295;
+    // D3D12 has no documented limit on the buffer size.
+    limits->v1.maxBufferSize = kAssumedMaxBufferSize;
 
     // Using base limits for:
     // TODO(crbug.com/dawn/685):
@@ -309,6 +313,20 @@ MaybeError Adapter::InitializeSupportedLimitsImpl(CombinedLimits* limits) {
     // TODO(crbug.com/dawn/1448):
     // - maxInterStageShaderVariables
 
+    return {};
+}
+
+MaybeError Adapter::ValidateFeatureSupportedWithTogglesImpl(
+    wgpu::FeatureName feature,
+    const TripleStateTogglesSet& userProvidedToggles) {
+    // shader-f16 feature and chromium-experimental-dp4a feature require DXC 1.4 or higher for
+    // D3D12.
+    if (feature == wgpu::FeatureName::ShaderF16 ||
+        feature == wgpu::FeatureName::ChromiumExperimentalDp4a) {
+        DAWN_INVALID_IF(
+            !(userProvidedToggles.IsEnabled(Toggle::UseDXC) && mBackend->IsDXCAvailable(1, 4)),
+            "Feature %s requires DXC for D3D12.", GetInstance()->GetFeatureInfo(feature)->name);
+    }
     return {};
 }
 
@@ -418,8 +436,10 @@ void Adapter::CleanUpDebugLayerFilters() {
     infoQueue->PopStorageFilter();
 }
 
-ResultOrError<Ref<DeviceBase>> Adapter::CreateDeviceImpl(const DeviceDescriptor* descriptor) {
-    return Device::Create(this, descriptor);
+ResultOrError<Ref<DeviceBase>> Adapter::CreateDeviceImpl(
+    const DeviceDescriptor* descriptor,
+    const TripleStateTogglesSet& userProvidedToggles) {
+    return Device::Create(this, descriptor, userProvidedToggles);
 }
 
 // Resets the backend device and creates a new one. If any D3D12 objects belonging to the

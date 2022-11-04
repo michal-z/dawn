@@ -16,27 +16,58 @@
 
 #include <string>
 
+#include "src/tint/ast/variable.h"
 #include "src/tint/debug.h"
+#include "src/tint/sem/variable.h"
+#include "src/tint/symbol_table.h"
 #include "src/tint/utils/hash.h"
 
 TINT_INSTANTIATE_TYPEINFO(tint::sem::Array);
 
 namespace tint::sem {
 
+namespace {
+
+TypeFlags FlagsFrom(const Type* element, ArrayCount count) {
+    TypeFlags flags;
+    // Only constant-expression sized arrays are constructible
+    if (std::holds_alternative<ConstantArrayCount>(count)) {
+        if (element->IsConstructible()) {
+            flags.Add(TypeFlag::kConstructable);
+        }
+        if (element->HasCreationFixedFootprint()) {
+            flags.Add(TypeFlag::kCreationFixedFootprint);
+        }
+    }
+    if (std::holds_alternative<ConstantArrayCount>(count) ||
+        std::holds_alternative<NamedOverrideArrayCount>(count) ||
+        std::holds_alternative<UnnamedOverrideArrayCount>(count)) {
+        if (element->HasFixedFootprint()) {
+            flags.Add(TypeFlag::kFixedFootprint);
+        }
+    }
+    return flags;
+}
+
+}  // namespace
+
+const char* const Array::kErrExpectedConstantCount =
+    "array size is an override-expression, when expected a constant-expression.\n"
+    "Was the SubstituteOverride transform run?";
+
 Array::Array(const Type* element,
-             uint32_t count,
+             ArrayCount count,
              uint32_t align,
              uint32_t size,
              uint32_t stride,
              uint32_t implicit_stride)
-    : element_(element),
+    : Base(FlagsFrom(element, count)),
+      element_(element),
       count_(count),
       align_(align),
       size_(size),
       stride_(stride),
-      implicit_stride_(implicit_stride),
-      constructible_(count > 0  // Runtime-sized arrays are not constructible
-                     && element->IsConstructible()) {
+      implicit_stride_(implicit_stride) {
     TINT_ASSERT(Semantic, element_);
 }
 
@@ -54,18 +85,18 @@ bool Array::Equals(const sem::Type& other) const {
     return false;
 }
 
-bool Array::IsConstructible() const {
-    return constructible_;
-}
-
 std::string Array::FriendlyName(const SymbolTable& symbols) const {
     std::ostringstream out;
     if (!IsStrideImplicit()) {
         out << "@stride(" << stride_ << ") ";
     }
     out << "array<" << element_->FriendlyName(symbols);
-    if (!IsRuntimeSized()) {
-        out << ", " << count_;
+    if (auto* const_count = std::get_if<ConstantArrayCount>(&count_)) {
+        out << ", " << const_count->value;
+    } else if (auto* named_override_count = std::get_if<NamedOverrideArrayCount>(&count_)) {
+        out << ", " << symbols.NameFor(named_override_count->variable->Declaration()->symbol);
+    } else if (std::holds_alternative<UnnamedOverrideArrayCount>(count_)) {
+        out << ", [unnamed override-expression]";
     }
     out << ">";
     return out.str();

@@ -7,16 +7,12 @@ layout(location = 1) in vec4 color_1;
 layout(location = 2) in vec2 quad_pos_1;
 layout(location = 0) out vec4 color_2;
 layout(location = 1) out vec2 quad_pos_2;
-struct RenderParams {
+layout(binding = 0, std140) uniform RenderParams_ubo {
   mat4 modelViewProjectionMatrix;
   vec3 right;
+  uint pad;
   vec3 up;
-};
-
-layout(binding = 0) uniform RenderParams_1 {
-  mat4 modelViewProjectionMatrix;
-  vec3 right;
-  vec3 up;
+  uint pad_1;
 } render_params;
 
 struct VertexInput {
@@ -147,26 +143,26 @@ struct VertexOutput {
   vec2 quad_pos;
 };
 
-struct SimulationParams {
-  float deltaTime;
-  vec4 seed;
-};
-
 struct Particle {
   vec3 position;
   float lifetime;
   vec4 color;
   vec3 velocity;
+  uint pad_3;
 };
 
-layout(binding = 0) uniform SimulationParams_1 {
+layout(binding = 0, std140) uniform SimulationParams_ubo {
   float deltaTime;
+  uint pad;
+  uint pad_1;
+  uint pad_2;
   vec4 seed;
 } sim_params;
 
-layout(binding = 1, std430) buffer Particles_1 {
+layout(binding = 1, std430) buffer Particles_ssbo {
   Particle particles[];
 } data;
+
 struct UBO {
   uint width;
 };
@@ -181,21 +177,21 @@ void simulate(uvec3 GlobalInvocationID) {
   particle.lifetime = (particle.lifetime - sim_params.deltaTime);
   particle.color.a = smoothstep(0.0f, 0.5f, particle.lifetime);
   if ((particle.lifetime < 0.0f)) {
-    ivec2 coord = ivec2(0);
+    uvec2 coord = uvec2(0u);
     {
-      for(int level = (textureQueryLevels(tint_symbol_6) - 1); (level > 0); level = (level - 1)) {
-        vec4 probabilites = texelFetch(tint_symbol_6, coord, level);
+      for(uint level = (uint(textureQueryLevels(tint_symbol_6)) - 1u); (level > 0u); level = (level - 1u)) {
+        vec4 probabilites = texelFetch(tint_symbol_6, ivec2(coord), int(level));
         float tint_symbol_5 = rand();
         vec4 value = vec4(tint_symbol_5);
         bvec4 mask = bvec4(uvec4(greaterThanEqual(value, vec4(0.0f, probabilites.xyz))) & uvec4(lessThan(value, probabilites)));
-        coord = (coord * 2);
-        coord.x = (coord.x + (any(mask.yw) ? 1 : 0));
-        coord.y = (coord.y + (any(mask.zw) ? 1 : 0));
+        coord = (coord * 2u);
+        coord.x = (coord.x + (any(mask.yw) ? 1u : 0u));
+        coord.y = (coord.y + (any(mask.zw) ? 1u : 0u));
       }
     }
-    vec2 uv = (vec2(coord) / vec2(textureSize(tint_symbol_6, 0)));
+    vec2 uv = (vec2(coord) / vec2(uvec2(textureSize(tint_symbol_6, 0))));
     particle.position = vec3((((uv - 0.5f) * 3.0f) * vec2(1.0f, -1.0f)), 0.0f);
-    particle.color = texelFetch(tint_symbol_6, coord, 0);
+    particle.color = texelFetch(tint_symbol_6, ivec2(coord), 0);
     float tint_symbol_1 = rand();
     particle.velocity.x = ((tint_symbol_1 - 0.5f) * 0.100000001f);
     float tint_symbol_2 = rand();
@@ -252,20 +248,21 @@ struct Particle {
   vec3 velocity;
 };
 
-struct UBO {
+layout(binding = 3, std140) uniform UBO_ubo {
   uint width;
-};
-
-layout(binding = 3) uniform UBO_1 {
-  uint width;
+  uint pad;
+  uint pad_1;
+  uint pad_2;
 } ubo;
 
-layout(binding = 4, std430) buffer Buffer_1 {
+layout(binding = 4, std430) buffer Buffer_ssbo {
   float weights[];
 } buf_in;
-layout(binding = 5, std430) buffer Buffer_2 {
+
+layout(binding = 5, std430) buffer Buffer_ssbo_1 {
   float weights[];
 } buf_out;
+
 uniform highp sampler2D tex_in_1;
 void import_level(uvec3 coord) {
   uint offset = (coord.x + (coord.y * ubo.width));
@@ -309,23 +306,24 @@ struct Particle {
   vec3 velocity;
 };
 
-struct UBO {
+layout(binding = 3, std140) uniform UBO_ubo {
   uint width;
-};
-
-layout(binding = 3) uniform UBO_1 {
-  uint width;
+  uint pad;
+  uint pad_1;
+  uint pad_2;
 } ubo;
 
-layout(binding = 4, std430) buffer Buffer_1 {
+layout(binding = 4, std430) buffer Buffer_ssbo {
   float weights[];
 } buf_in;
-layout(binding = 5, std430) buffer Buffer_2 {
+
+layout(binding = 5, std430) buffer Buffer_ssbo_1 {
   float weights[];
 } buf_out;
+
 layout(rgba8) uniform highp writeonly image2D tex_out;
 void export_level(uvec3 coord) {
-  if (all(lessThan(coord.xy, uvec2(imageSize(tex_out))))) {
+  if (all(lessThan(coord.xy, uvec2(uvec2(imageSize(tex_out)))))) {
     uint dst_offset = (coord.x + (coord.y * ubo.width));
     uint src_offset = ((coord.x * 2u) + ((coord.y * 2u) * ubo.width));
     float a = buf_in.weights[(src_offset + 0u)];

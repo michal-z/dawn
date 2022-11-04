@@ -10,8 +10,8 @@ struct S {
 void f() {
   {
     int i = 0;
-    [loop] while (true) {
-      if (!(false)) {
+    while (true) {
+      if (true) {
         break;
       }
       {

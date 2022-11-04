@@ -6,21 +6,22 @@ struct Uniforms {
   int outShape;
   int outShapeStrides;
   int size;
+  uint pad;
+  uint pad_1;
+  uint pad_2;
 };
 
-layout(binding = 0, std430) buffer ssbOut_1 {
+layout(binding = 0, std430) buffer ssbOut_ssbo {
   float result[];
 } x_16;
-layout(binding = 1, std430) buffer ssbA_1 {
+
+layout(binding = 1, std430) buffer ssbA_ssbo {
   float A[];
 } x_20;
+
 uvec3 tint_symbol = uvec3(0u, 0u, 0u);
-layout(binding = 2) uniform Uniforms_1 {
-  float NAN;
-  int aShape;
-  int outShape;
-  int outShapeStrides;
-  int size;
+layout(binding = 2, std140) uniform x_24_block_ubo {
+  Uniforms inner;
 } x_24;
 
 float getAAtOutCoords_() {
@@ -32,7 +33,7 @@ float getAAtOutCoords_() {
 float unaryOperation_f1_(inout float a) {
   float x_47 = a;
   if ((x_47 < 0.0f)) {
-    return uintBitsToFloat(0x7f800000u);
+    return 0.0f /* inf */;
   }
   float x_55 = a;
   return log(x_55);
@@ -54,13 +55,15 @@ void main_1() {
   uint x_61 = tint_symbol.x;
   index = int(x_61);
   int x_63 = index;
-  int x_70 = x_24.size;
+  int x_70 = x_24.inner.size;
   if ((x_63 < x_70)) {
     float x_75 = getAAtOutCoords_();
     a_1 = x_75;
-    param = a_1;
+    float x_77 = a_1;
+    param = x_77;
     float x_78 = unaryOperation_f1_(param);
-    param_1 = index;
+    int x_80 = index;
+    param_1 = x_80;
     param_2 = x_78;
     setOutput_i1_f1_(param_1, param_2);
   }

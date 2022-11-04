@@ -24,6 +24,7 @@
 #include "src/tint/sem/for_loop_statement.h"
 #include "src/tint/sem/reference.h"
 #include "src/tint/sem/sampler.h"
+#include "src/tint/sem/variable.h"
 
 TINT_INSTANTIATE_TYPEINFO(tint::transform::Transform);
 TINT_INSTANTIATE_TYPEINFO(tint::transform::Data);
@@ -45,22 +46,17 @@ Output::Output(Program&& p) : program(std::move(p)) {}
 Transform::Transform() = default;
 Transform::~Transform() = default;
 
-Output Transform::Run(const Program* program, const DataMap& data /* = {} */) const {
-    ProgramBuilder builder;
-    CloneContext ctx(&builder, program);
+Output Transform::Run(const Program* src, const DataMap& data /* = {} */) const {
     Output output;
-    Run(ctx, data, output.data);
-    output.program = Program(std::move(builder));
+    if (auto program = Apply(src, data, output.data)) {
+        output.program = std::move(program.value());
+    } else {
+        ProgramBuilder b;
+        CloneContext ctx{&b, src, /* auto_clone_symbols */ true};
+        ctx.Clone();
+        output.program = Program(std::move(b));
+    }
     return output;
-}
-
-void Transform::Run(CloneContext& ctx, const DataMap&, DataMap&) const {
-    TINT_UNIMPLEMENTED(Transform, ctx.dst->Diagnostics())
-        << "Transform::Run() unimplemented for " << TypeInfo().name;
-}
-
-bool Transform::ShouldRun(const Program*, const DataMap&) const {
-    return true;
 }
 
 void Transform::RemoveStatement(CloneContext& ctx, const ast::Statement* stmt) {
@@ -112,9 +108,20 @@ const ast::Type* Transform::CreateASTTypeFor(CloneContext& ctx, const sem::Type*
         }
         if (a->IsRuntimeSized()) {
             return ctx.dst->ty.array(el, nullptr, std::move(attrs));
-        } else {
-            return ctx.dst->ty.array(el, u32(a->Count()), std::move(attrs));
         }
+        if (auto* override = std::get_if<sem::NamedOverrideArrayCount>(&a->Count())) {
+            auto* count = ctx.Clone(override->variable->Declaration());
+            return ctx.dst->ty.array(el, count, std::move(attrs));
+        }
+        if (auto* override = std::get_if<sem::UnnamedOverrideArrayCount>(&a->Count())) {
+            auto* count = ctx.Clone(override->expr->Declaration());
+            return ctx.dst->ty.array(el, count, std::move(attrs));
+        }
+        if (auto count = a->ConstantCount()) {
+            return ctx.dst->ty.array(el, u32(count.value()), std::move(attrs));
+        }
+        TINT_ICE(Transform, ctx.dst->Diagnostics()) << sem::Array::kErrExpectedConstantCount;
+        return ctx.dst->ty.array(el, u32(1), std::move(attrs));
     }
     if (auto* s = ty->As<sem::Struct>()) {
         return ctx.dst->create<ast::TypeName>(ctx.Clone(s->Declaration()->name));

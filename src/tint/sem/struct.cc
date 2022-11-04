@@ -27,6 +27,29 @@ TINT_INSTANTIATE_TYPEINFO(tint::sem::Struct);
 TINT_INSTANTIATE_TYPEINFO(tint::sem::StructMember);
 
 namespace tint::sem {
+namespace {
+
+TypeFlags FlagsFrom(const StructMemberList& members) {
+    TypeFlags flags{
+        TypeFlag::kConstructable,
+        TypeFlag::kCreationFixedFootprint,
+        TypeFlag::kFixedFootprint,
+    };
+    for (auto* member : members) {
+        if (!member->Type()->IsConstructible()) {
+            flags.Remove(TypeFlag::kConstructable);
+        }
+        if (!member->Type()->HasFixedFootprint()) {
+            flags.Remove(TypeFlag::kFixedFootprint);
+        }
+        if (!member->Type()->HasCreationFixedFootprint()) {
+            flags.Remove(TypeFlag::kCreationFixedFootprint);
+        }
+    }
+    return flags;
+}
+
+}  // namespace
 
 Struct::Struct(const ast::Struct* declaration,
                Symbol name,
@@ -34,20 +57,13 @@ Struct::Struct(const ast::Struct* declaration,
                uint32_t align,
                uint32_t size,
                uint32_t size_no_padding)
-    : declaration_(declaration),
+    : Base(FlagsFrom(members)),
+      declaration_(declaration),
       name_(name),
       members_(std::move(members)),
       align_(align),
       size_(size),
-      size_no_padding_(size_no_padding) {
-    constructible_ = true;
-    for (auto* member : members_) {
-        if (!member->Type()->IsConstructible()) {
-            constructible_ = false;
-            break;
-        }
-    }
-}
+      size_no_padding_(size_no_padding) {}
 
 Struct::~Struct() = default;
 
@@ -151,24 +167,22 @@ std::string Struct::Layout(const tint::SymbolTable& symbols) const {
     return ss.str();
 }
 
-bool Struct::IsConstructible() const {
-    return constructible_;
-}
-
 StructMember::StructMember(const ast::StructMember* declaration,
                            Symbol name,
                            const sem::Type* type,
                            uint32_t index,
                            uint32_t offset,
                            uint32_t align,
-                           uint32_t size)
+                           uint32_t size,
+                           std::optional<uint32_t> location)
     : declaration_(declaration),
       name_(name),
       type_(type),
       index_(index),
       offset_(offset),
       align_(align),
-      size_(size) {}
+      size_(size),
+      location_(location) {}
 
 StructMember::~StructMember() = default;
 

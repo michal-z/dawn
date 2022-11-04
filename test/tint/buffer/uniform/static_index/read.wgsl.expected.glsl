@@ -2,6 +2,9 @@
 
 struct Inner {
   int x;
+  uint pad;
+  uint pad_1;
+  uint pad_2;
 };
 
 struct S {
@@ -15,11 +18,13 @@ struct S {
   ivec2 h;
   mat2x3 i;
   mat3x2 j;
+  uint pad_3;
+  uint pad_4;
   Inner k;
   Inner l[4];
 };
 
-layout(binding = 0) uniform S_1 {
+struct S_std140 {
   ivec3 a;
   int b;
   uvec3 c;
@@ -29,24 +34,36 @@ layout(binding = 0) uniform S_1 {
   ivec2 g;
   ivec2 h;
   mat2x3 i;
-  mat3x2 j;
+  vec2 j_0;
+  vec2 j_1;
+  vec2 j_2;
+  uint pad_3;
+  uint pad_4;
   Inner k;
   Inner l[4];
+};
+
+layout(binding = 0, std140) uniform s_block_std140_ubo {
+  S_std140 inner;
 } s;
 
+mat3x2 load_s_inner_j() {
+  return mat3x2(s.inner.j_0, s.inner.j_1, s.inner.j_2);
+}
+
 void tint_symbol() {
-  ivec3 a = s.a;
-  int b = s.b;
-  uvec3 c = s.c;
-  uint d = s.d;
-  vec3 e = s.e;
-  float f = s.f;
-  ivec2 g = s.g;
-  ivec2 h = s.h;
-  mat2x3 i = s.i;
-  mat3x2 j = s.j;
-  Inner k = s.k;
-  Inner l[4] = s.l;
+  ivec3 a = s.inner.a;
+  int b = s.inner.b;
+  uvec3 c = s.inner.c;
+  uint d = s.inner.d;
+  vec3 e = s.inner.e;
+  float f = s.inner.f;
+  ivec2 g = s.inner.g;
+  ivec2 h = s.inner.h;
+  mat2x3 i = s.inner.i;
+  mat3x2 j = load_s_inner_j();
+  Inner k = s.inner.k;
+  Inner l[4] = s.inner.l;
 }
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;

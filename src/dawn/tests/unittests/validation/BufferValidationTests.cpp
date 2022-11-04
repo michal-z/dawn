@@ -15,6 +15,7 @@
 #include <limits>
 #include <memory>
 
+#include "dawn/common/Platform.h"
 #include "dawn/tests/unittests/validation/ValidationTest.h"
 #include "gmock/gmock.h"
 
@@ -502,7 +503,7 @@ TEST_F(BufferValidationTest, DestroyDestroyedBuffer) {
     buf.Destroy();
 }
 
-// Test that it is invalid to Unmap an error buffer
+// Test that it is valid to Unmap an error buffer
 TEST_F(BufferValidationTest, UnmapErrorBuffer) {
     wgpu::BufferDescriptor desc;
     desc.size = 4;
@@ -510,20 +511,20 @@ TEST_F(BufferValidationTest, UnmapErrorBuffer) {
     wgpu::Buffer buf;
     ASSERT_DEVICE_ERROR(buf = device.CreateBuffer(&desc));
 
-    ASSERT_DEVICE_ERROR(buf.Unmap());
+    buf.Unmap();
 }
 
-// Test that it is invalid to Unmap a destroyed buffer
+// Test that it is valid to Unmap a destroyed buffer
 TEST_F(BufferValidationTest, UnmapDestroyedBuffer) {
     {
         wgpu::Buffer buf = CreateMapReadBuffer(4);
         buf.Destroy();
-        ASSERT_DEVICE_ERROR(buf.Unmap());
+        buf.Unmap();
     }
     {
         wgpu::Buffer buf = CreateMapWriteBuffer(4);
         buf.Destroy();
-        ASSERT_DEVICE_ERROR(buf.Unmap());
+        buf.Unmap();
     }
 }
 
@@ -625,35 +626,35 @@ TEST_F(BufferValidationTest, SubmitDestroyedBuffer) {
     ASSERT_DEVICE_ERROR(queue.Submit(1, &commands));
 }
 
-// Test that a map usage is required to call Unmap
+// Test that a map usage is not required to call Unmap
 TEST_F(BufferValidationTest, UnmapWithoutMapUsage) {
     wgpu::BufferDescriptor descriptor;
     descriptor.size = 4;
     descriptor.usage = wgpu::BufferUsage::CopyDst;
     wgpu::Buffer buf = device.CreateBuffer(&descriptor);
 
-    ASSERT_DEVICE_ERROR(buf.Unmap());
+    buf.Unmap();
 }
 
 // Test that it is valid to call Unmap on a buffer that is not mapped
 TEST_F(BufferValidationTest, UnmapUnmappedBuffer) {
     {
         wgpu::Buffer buf = CreateMapReadBuffer(4);
-        // Buffer starts unmapped. Unmap should fail.
-        ASSERT_DEVICE_ERROR(buf.Unmap());
+        // Buffer starts unmapped. Unmap shouldn't fail.
+        buf.Unmap();
         buf.MapAsync(wgpu::MapMode::Read, 0, 4, nullptr, nullptr);
         buf.Unmap();
-        // Unmapping a second time should fail.
-        ASSERT_DEVICE_ERROR(buf.Unmap());
+        // Unmapping a second time shouldn't fail.
+        buf.Unmap();
     }
     {
         wgpu::Buffer buf = CreateMapWriteBuffer(4);
-        // Buffer starts unmapped. Unmap should fail.
-        ASSERT_DEVICE_ERROR(buf.Unmap());
+        // Buffer starts unmapped. Unmap shouldn't fail.
+        buf.Unmap();
         buf.MapAsync(wgpu::MapMode::Write, 0, 4, nullptr, nullptr);
         buf.Unmap();
-        // Unmapping a second time should fail.
-        ASSERT_DEVICE_ERROR(buf.Unmap());
+        // Unmapping a second time shouldn't fail.
+        buf.Unmap();
     }
 }
 
@@ -802,12 +803,6 @@ TEST_F(BufferValidationTest, GetMappedRange_ValidBufferStateCases) {
 
 // Test valid cases to call GetMappedRange on an error buffer.
 TEST_F(BufferValidationTest, GetMappedRange_OnErrorBuffer) {
-    wgpu::BufferDescriptor desc;
-    desc.size = 4;
-    desc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::MapRead;
-
-    uint64_t kStupidLarge = uint64_t(1) << uint64_t(63);
-
     // GetMappedRange after mappedAtCreation a zero-sized buffer returns a non-nullptr.
     // This is to check we don't do a malloc(0).
     {
@@ -828,17 +823,23 @@ TEST_F(BufferValidationTest, GetMappedRange_OnErrorBuffer) {
         ASSERT_NE(buffer.GetConstMappedRange(), nullptr);
         ASSERT_EQ(buffer.GetConstMappedRange(), buffer.GetMappedRange());
     }
+}
+
+// Test valid cases to call GetMappedRange on an error buffer that's also OOM.
+TEST_F(BufferValidationTest, GetMappedRange_OnErrorBuffer_OOM) {
+    // TODO(crbug.com/dawn/1506): new (std::nothrow) crashes on OOM on Mac ARM64 because libunwind
+    // doesn't see the previous catchall try-catch.
+    DAWN_SKIP_TEST_IF(DAWN_PLATFORM_IS(MACOS) && DAWN_PLATFORM_IS(ARM64));
+
+    uint64_t kStupidLarge = uint64_t(1) << uint64_t(63);
+
+    wgpu::Buffer buffer;
+    ASSERT_DEVICE_ERROR(buffer = BufferMappedAtCreation(
+                            kStupidLarge, wgpu::BufferUsage::Storage | wgpu::BufferUsage::MapRead));
 
     // GetMappedRange after mappedAtCreation OOM case returns nullptr.
-    {
-        wgpu::Buffer buffer;
-        ASSERT_DEVICE_ERROR(
-            buffer = BufferMappedAtCreation(
-                kStupidLarge, wgpu::BufferUsage::Storage | wgpu::BufferUsage::MapRead));
-
-        ASSERT_EQ(buffer.GetConstMappedRange(), nullptr);
-        ASSERT_EQ(buffer.GetConstMappedRange(), buffer.GetMappedRange());
-    }
+    ASSERT_EQ(buffer.GetConstMappedRange(), nullptr);
+    ASSERT_EQ(buffer.GetConstMappedRange(), buffer.GetMappedRange());
 }
 
 // Test validation of the GetMappedRange parameters
@@ -991,8 +992,9 @@ TEST_F(BufferValidationTest, CreationParameterReflectionForOOMBuffer) {
     desc.size = kAmazinglyLargeSize;
 
     // OOM!
+    // TODO(dawn:1525): remove warning expectation after the deprecation period.
     wgpu::Buffer buf;
-    ASSERT_DEVICE_ERROR(buf = device.CreateBuffer(&desc));
+    ASSERT_DEVICE_ERROR(EXPECT_DEPRECATION_WARNING(buf = device.CreateBuffer(&desc)));
 
     // Reflection data is still exactly what was in the descriptor.
     EXPECT_EQ(wgpu::BufferUsage::Storage, buf.GetUsage());

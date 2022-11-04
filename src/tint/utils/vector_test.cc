@@ -151,6 +151,17 @@ TEST(TintVectorTest, InitializerList_NoSmallArray) {
     EXPECT_TRUE(AllExternallyHeld(vec));
 }
 
+TEST(TintVectorTest, Push_NoSmallArray) {
+    Vector<std::string, 0> vec;
+    vec.Push("one");
+    vec.Push("two");
+    EXPECT_EQ(vec.Length(), 2u);
+    EXPECT_EQ(vec.Capacity(), 2u);
+    EXPECT_EQ(vec[0], "one");
+    EXPECT_EQ(vec[1], "two");
+    EXPECT_TRUE(AllExternallyHeld(vec));
+}
+
 TEST(TintVectorTest, InferTN_1CString) {
     auto vec = Vector{"one"};
     static_assert(std::is_same_v<decltype(vec)::value_type, const char*>);
@@ -2047,6 +2058,15 @@ TEST(TintVectorRefTest, ConstBeginEnd) {
     static_assert(std::is_const_v<std::remove_reference_t<decltype(*vec_ref.end())>>);
     EXPECT_EQ(vec_ref.begin(), &vec[0]);
     EXPECT_EQ(vec_ref.end(), &vec[0] + 3);
+}
+
+TEST(TintVectorTest, Equality) {
+    EXPECT_EQ((Vector<int, 2>{1, 2}), (Vector<int, 2>{1, 2}));
+    EXPECT_EQ((Vector<int, 1>{1, 2}), (Vector<int, 3>{1, 2}));
+    EXPECT_NE((Vector{1, 2}), (Vector{1}));
+    EXPECT_NE((Vector{1}), (Vector{1, 2}));
+    EXPECT_NE((Vector{1, 2}), (Vector{2, 1}));
+    EXPECT_NE((Vector{2, 1}), (Vector{1, 2}));
 }
 
 }  // namespace
