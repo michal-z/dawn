@@ -22,7 +22,6 @@ set -ex
 #   emscripten_bits_gen
 #
 ninja -C ./out/Debug \
-    remove_stale_autogen_files \
     vulkan_gen_icd_json_file \
     vulkan_gen_json_files \
     headers_gen \
